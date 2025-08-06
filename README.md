@@ -1,4 +1,4 @@
-# zlib-wasm
+# zlib-web-streams
 
 A WebAssembly implementation of the zlib compression library that provides the same APIs as Web Compression Streams with additional features.
 
@@ -16,7 +16,7 @@ A WebAssembly implementation of the zlib compression library that provides the s
 ### Basic Compression/Decompression
 
 ```javascript
-import { CompressionStream, DecompressionStream } from 'zlib-wasm';
+import { CompressionStream, DecompressionStream } from 'zlib-web-streams';
 
 // Compress data
 const compressor = new CompressionStream('deflate');

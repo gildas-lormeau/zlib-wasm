@@ -1,5 +1,5 @@
 {
-	"name": "zlib-wasm",
+	"name": "zlib-web-streams",
 	"version": "1.0.0",
 	"description": "Zlib compression library compiled to WebAssembly",
 	"exports": "./src/index.js",
