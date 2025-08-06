@@ -84,7 +84,6 @@ class ZlibCompressor {
 				if (chunkResult.length > 0) {
 					results.push(chunkResult);
 				}
-
 				offset += chunkSize;
 			}
 			const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
@@ -110,7 +109,6 @@ class ZlibCompressor {
 		zlibModule.HEAPU32[streamPtrU32 + 1] = data.length;
 		zlibModule.HEAPU32[streamPtrU32 + 3] = zlibCompressor.outputPtr;
 		zlibModule.HEAPU32[streamPtrU32 + 4] = zlibCompressor.outputSize;
-
 		const flushType = finish ? Z_FINISH : (FLUSH_MODES[flushMode] || Z_NO_FLUSH);
 		const result = zlibModule._deflate(zlibCompressor.streamPtr, flushType);
 		if (result < 0 || (finish && result !== Z_STREAM_END) || (!finish && result !== Z_OK)) {
