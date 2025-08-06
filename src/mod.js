@@ -118,7 +118,7 @@ class ZlibCompressor {
 			}
 			return data;
 		}
-		
+
 		copyToWasmMemory(zlibModule, data, zlibCompressor.inputPtr);
 		if (zlibCompressor.computeCRC32 && data.length > 0) {
 			zlibCompressor.crc32 = zlibModule._crc32(zlibCompressor.crc32, zlibCompressor.inputPtr, data.length);
@@ -284,15 +284,11 @@ class ZlibDecompressor {
 		const results = [];
 		const inFunc = zlibModule.addFunction((_, bufPtr) => {
 			if (inputOffset >= data.length) {
-				return 0; // No more input available
+				return 0;
 			}
-
 			const remainingBytes = data.length - inputOffset;
 			const currentInputPtr = zlibDecompressor.inputPtr + inputOffset;
-
-			// Set the buffer pointer to current input position
 			zlibModule.HEAPU32[bufPtr >>> 2] = currentInputPtr;
-
 			return remainingBytes;
 		}, "iii");
 		const outFunc = zlibModule.addFunction((_, buf, len) => {
@@ -303,7 +299,7 @@ class ZlibDecompressor {
 				const outputChunk = copyFromWasmMemory(zlibModule, buf, len);
 				results.push(outputChunk);
 			}
-			return 0; // Success
+			return 0;
 		}, "iiii");
 		const result = zlibModule.ccall("inflateBack9", "number", ["number", "number", "number", "number", "number"], [
 			zlibDecompressor.streamPtr,
@@ -421,8 +417,8 @@ class BaseStreamPolyfill {
 				} catch (error) {
 					try {
 						processor.cleanup();
-					} catch (_cleanupError) {
-						// Ignore cleanup errors if the main error is what we care about
+					} catch (_) {
+						// ignored
 					}
 					controller.error(error);
 				}
