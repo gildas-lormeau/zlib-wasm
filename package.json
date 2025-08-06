@@ -6,6 +6,13 @@
   "license": "Zlib",
   "main": "src/index.js",
   "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./bundle": "./src/bundle.js",
+    "./dist": "./dist/zlib.js",
+    "./dist/min": "./dist/zlib.min.js",
+    "./wasm": "./src/wasm.js"
+  },
   "scripts": {
     "build": "./scripts/build-dist-wasm.sh && vite build",
     "test": "deno run --allow-read --allow-net --allow-run tests/test-runner.js",
@@ -22,8 +29,9 @@
     "wasm"
   ],
   "files": [
-    "dist-wasm/zlib-module.js",
-    "dist-wasm/zlib-module.wasm"
+    "dist/",
+    "dist-wasm/",
+    "src/"
   ],
   "directories": {
     "test": "tests"
