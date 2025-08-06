@@ -266,9 +266,18 @@ class ZlibDecompressor {
     if (result === 1) {
       zlibDecompressor.deflate64Complete = true;
     }
-    if (result < 0 && result !== -5) {
+    if (result < 0) {
       const msg = "failed with error code";
-      throw new Error(`Deflate64 decompression ${msg}: ${result}`);
+      const errorDescriptions = {
+        "-1": "system error",
+        "-2": "stream error",
+        "-3": "data error (corrupted/invalid data)",
+        "-4": "memory error",
+        "-5": "buffer error",
+        "-6": "version error"
+      };
+      const errorDesc = errorDescriptions[result.toString()] || "unknown error";
+      throw new Error(`Deflate64 decompression ${msg}: ${result} (${errorDesc})`);
     }
     if (finish && result !== 1 && !zlibDecompressor.deflate64Complete) {
       const msg = "expected end of stream but got error code";
