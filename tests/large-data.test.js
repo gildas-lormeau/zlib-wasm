@@ -6,7 +6,7 @@ async function verifyBugFix() {
 	console.log("Large Data Bug Fix Verification");
 
 	await TestUtils.test("Multiple large data sizes", async () => {
-		const sizes = [32768, 32769, 65536, 100000, 150000, 200000, 500000];
+		const sizes = [32768, 32769, 65536, 100000, 150000, 200000, 500000, 10000000];
 
 		for (const size of sizes) {
 			console.log(`   Testing ${size} bytes...`);
