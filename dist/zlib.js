@@ -95,6 +95,18 @@ class ZlibCompressor {
     if (data.length > zlibCompressor.inputSize) {
       throw new Error(`Chunk size ${data.length} exceeds buffer size ${zlibCompressor.inputSize}`);
     }
+    if (zlibCompressor.level === 0 && zlibCompressor.format === "deflate-raw") {
+      if (zlibCompressor.computeCRC32 && data.length > 0) {
+        const tempPtr = zlibModule._malloc(data.length);
+        try {
+          zlibModule.HEAPU8.set(data, tempPtr);
+          zlibCompressor.crc32 = zlibModule._crc32(zlibCompressor.crc32, tempPtr, data.length);
+        } finally {
+          zlibModule._free(tempPtr);
+        }
+      }
+      return data;
+    }
     copyToWasmMemory(zlibModule, data, zlibCompressor.inputPtr);
     if (zlibCompressor.computeCRC32 && data.length > 0) {
       zlibCompressor.crc32 = zlibModule._crc32(zlibCompressor.crc32, zlibCompressor.inputPtr, data.length);
