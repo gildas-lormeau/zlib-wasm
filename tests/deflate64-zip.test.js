@@ -22,6 +22,33 @@ const TestUtils = {
     }
 };
 
+// CRC-32 calculation for data integrity verification
+function calculateCRC32(data) {
+    const crcTable = new Uint32Array(256);
+    
+    // Generate CRC table
+    for (let i = 0; i < 256; i++) {
+        let crc = i;
+        for (let j = 0; j < 8; j++) {
+            if (crc & 1) {
+                crc = (crc >>> 1) ^ 0xEDB88320;
+            } else {
+                crc = crc >>> 1;
+            }
+        }
+        crcTable[i] = crc;
+    }
+    
+    // Calculate CRC
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < data.length; i++) {
+        const byte = data[i];
+        crc = (crc >>> 8) ^ crcTable[(crc ^ byte) & 0xFF];
+    }
+    
+    return (crc ^ 0xFFFFFFFF) >>> 0; // Ensure unsigned 32-bit result
+}
+
 // ZIP file parsing utilities
 function parseZipFile(zipData) {
     const view = new DataView(zipData.buffer);
@@ -47,6 +74,7 @@ function parseZipFile(zipData) {
         if (signature !== 0x02014b50) break; // Central directory file header signature
 
         const compressionMethod = view.getUint16(offset + 10, true);
+        const crc32 = view.getUint32(offset + 16, true);
         const compressedSize = view.getUint32(offset + 20, true);
         const uncompressedSize = view.getUint32(offset + 24, true);
         const filenameLength = view.getUint16(offset + 28, true);
@@ -61,6 +89,7 @@ function parseZipFile(zipData) {
         files.push({
             filename,
             compressionMethod,
+            crc32,
             compressedSize,
             uncompressedSize,
             localHeaderOffset
@@ -109,6 +138,7 @@ await TestUtils.test("Read and parse deflate64 ZIP file", async () => {
     for (const file of files) {
         console.log(`   File: ${file.filename}`);
         console.log(`   Compression method: ${file.compressionMethod} ${file.compressionMethod === 9 ? "(deflate64)" : ""}`);
+        console.log(`   CRC-32: 0x${file.crc32.toString(16).padStart(8, '0').toUpperCase()}`);
         console.log(`   Compressed size: ${file.compressedSize} bytes`);
         console.log(`   Uncompressed size: ${file.uncompressedSize} bytes`);
 
@@ -172,7 +202,18 @@ await TestUtils.test("Decompress deflate64 content from ZIP", async () => {
                 if (decompressed.length === file.uncompressedSize) {
                     console.log(`   ✓ Decompressed size matches expected (${file.uncompressedSize} bytes)`);
                 } else {
-                    console.log(`   ⚠️  Size mismatch: got ${decompressed.length}, expected ${file.uncompressedSize}`);
+                    throw new Error(`Size mismatch: got ${decompressed.length}, expected ${file.uncompressedSize}`);
+                }
+
+                // Verify CRC-32 checksum for data integrity
+                const calculatedCRC = calculateCRC32(decompressed);
+                console.log(`   Expected CRC-32: 0x${file.crc32.toString(16).padStart(8, '0').toUpperCase()}`);
+                console.log(`   Calculated CRC-32: 0x${calculatedCRC.toString(16).padStart(8, '0').toUpperCase()}`);
+                
+                if (calculatedCRC === file.crc32) {
+                    console.log(`   ✓ CRC-32 checksum verified - data integrity confirmed`);
+                } else {
+                    throw new Error(`CRC-32 mismatch: calculated 0x${calculatedCRC.toString(16).toUpperCase()}, expected 0x${file.crc32.toString(16).toUpperCase()}`);
                 }
 
                 // Try to decode as text
