@@ -105,16 +105,21 @@ class ZlibCompressor {
 			throw new Error(`Chunk size ${data.length} exceeds buffer size ${zlibCompressor.inputSize}`);
 		}
 		copyToWasmMemory(zlibModule, data, zlibCompressor.inputPtr);
-		zlibModule.setValue(zlibCompressor.streamPtr + 0, zlibCompressor.inputPtr, "i32");
-		zlibModule.setValue(zlibCompressor.streamPtr + 4, data.length, "i32");
-		zlibModule.setValue(zlibCompressor.streamPtr + 12, zlibCompressor.outputPtr, "i32");
-		zlibModule.setValue(zlibCompressor.streamPtr + 16, zlibCompressor.outputSize, "i32");
+		
+		// Use direct HEAP32 access for better performance (4-byte aligned 32-bit writes)
+		const streamPtrU32 = zlibCompressor.streamPtr >>> 2; // Convert to 32-bit index
+		zlibModule.HEAPU32[streamPtrU32 + 0] = zlibCompressor.inputPtr;      // next_in (offset 0)
+		zlibModule.HEAPU32[streamPtrU32 + 1] = data.length;                  // avail_in (offset 4)
+		zlibModule.HEAPU32[streamPtrU32 + 3] = zlibCompressor.outputPtr;     // next_out (offset 12)
+		zlibModule.HEAPU32[streamPtrU32 + 4] = zlibCompressor.outputSize;    // avail_out (offset 16)
+		
 		const flushType = finish ? Z_FINISH : (FLUSH_MODES[flushMode] || Z_NO_FLUSH);
 		const result = zlibModule._deflate(zlibCompressor.streamPtr, flushType);
 		if (result < 0 || (finish && result !== Z_STREAM_END) || (!finish && result !== Z_OK)) {
 			throw new Error(`Compression failed: ${result}`);
 		}
-		const availOut = zlibModule.getValue(zlibCompressor.streamPtr + 16, "i32");
+		
+		const availOut = zlibModule.HEAPU32[streamPtrU32 + 4]; // avail_out (offset 16)
 		const outputLength = zlibCompressor.outputSize - availOut;
 		return copyFromWasmMemory(zlibModule, zlibCompressor.outputPtr, outputLength);
 	}
@@ -208,22 +213,27 @@ class ZlibDecompressor {
 					zlibDecompressor.inputPtr,
 				);
 			}
-			zlibModule.setValue(zlibDecompressor.streamPtr + 0, zlibDecompressor.inputPtr, "i32");
-			zlibModule.setValue(zlibDecompressor.streamPtr + 4, inputChunkSize, "i32");
-			zlibModule.setValue(zlibDecompressor.streamPtr + 12, zlibDecompressor.outputPtr, "i32");
-			zlibModule.setValue(zlibDecompressor.streamPtr + 16, zlibDecompressor.outputSize, "i32");
+			
+			// Use direct HEAP32 access for better performance
+			const streamPtrU32 = zlibDecompressor.streamPtr >>> 2;
+			zlibModule.HEAPU32[streamPtrU32 + 0] = zlibDecompressor.inputPtr;      // next_in (offset 0)
+			zlibModule.HEAPU32[streamPtrU32 + 1] = inputChunkSize;                 // avail_in (offset 4)
+			zlibModule.HEAPU32[streamPtrU32 + 3] = zlibDecompressor.outputPtr;     // next_out (offset 12)
+			zlibModule.HEAPU32[streamPtrU32 + 4] = zlibDecompressor.outputSize;    // avail_out (offset 16)
+			
 			const isLastChunk = totalInputProcessed + inputChunkSize >= data.length;
 			const flushType = (finish && isLastChunk) ? Z_FINISH : (FLUSH_MODES[flushMode] || Z_SYNC_FLUSH);
 			const result = zlibModule._inflate(zlibDecompressor.streamPtr, flushType);
 			if (result < 0 && result !== -5) {
 				throw new Error(`Decompression failed: ${result}`);
 			}
-			const availOut = zlibModule.getValue(zlibDecompressor.streamPtr + 16, "i32");
+			
+			const availOut = zlibModule.HEAPU32[streamPtrU32 + 4]; // avail_out (offset 16)
 			const outputLength = zlibDecompressor.outputSize - availOut;
 			if (outputLength > 0) {
 				results.push(copyFromWasmMemory(zlibModule, zlibDecompressor.outputPtr, outputLength));
 			}
-			const inputProcessed = zlibModule.getValue(zlibDecompressor.streamPtr + 4, "i32");
+			const inputProcessed = zlibModule.HEAPU32[streamPtrU32 + 1]; // avail_in (offset 4)
 			totalInputProcessed += inputChunkSize - inputProcessed;
 			if (result === Z_STREAM_END) {
 				break;
@@ -250,30 +260,35 @@ class ZlibDecompressor {
 	decompressDeflate64(data, finish) {
 		const zlibDecompressor = this;
 		copyToWasmMemory(zlibModule, data, zlibDecompressor.inputPtr);
-		zlibModule.setValue(zlibDecompressor.streamPtr + 0, zlibDecompressor.inputPtr, "i32");
-		zlibModule.setValue(zlibDecompressor.streamPtr + 4, data.length, "i32");
-		zlibModule.setValue(zlibDecompressor.streamPtr + 8, zlibDecompressor.outputPtr, "i32");
-		zlibModule.setValue(zlibDecompressor.streamPtr + 12, zlibDecompressor.outputSize, "i32");
+		
+		// Use direct HEAP32 access for better performance
+		const streamPtrU32 = zlibDecompressor.streamPtr >>> 2;
+		zlibModule.HEAPU32[streamPtrU32 + 0] = zlibDecompressor.inputPtr;      // next_in (offset 0)
+		zlibModule.HEAPU32[streamPtrU32 + 1] = data.length;                    // avail_in (offset 4)
+		zlibModule.HEAPU32[streamPtrU32 + 2] = zlibDecompressor.outputPtr;     // next_out (offset 8)
+		zlibModule.HEAPU32[streamPtrU32 + 3] = zlibDecompressor.outputSize;    // avail_out (offset 12)
+		
 		if (!zlibDecompressor.inflateBack9InFunc) {
 			zlibDecompressor.inflateBack9InFunc = zlibModule.addFunction((_, buf) => {
-				const availIn = zlibModule.getValue(zlibDecompressor.streamPtr + 4, "i32");
+				const availIn = zlibModule.HEAPU32[streamPtrU32 + 1]; // avail_in (offset 4)
 				if (availIn > 0) {
-					const nextIn = zlibModule.getValue(zlibDecompressor.streamPtr + 0, "i32");
-					zlibModule.setValue(buf, nextIn, "i32");
+					const nextIn = zlibModule.HEAPU32[streamPtrU32 + 0]; // next_in (offset 0)
+					zlibModule.HEAPU32[buf >>> 2] = nextIn;
 					return availIn;
 				}
 				return 0;
 			}, "iii");
 			zlibDecompressor.inflateBack9OutFunc = zlibModule.addFunction((_, buf, len) => {
-				const nextOut = zlibModule.getValue(zlibDecompressor.streamPtr + 8, "i32");
-				const availOut = zlibModule.getValue(zlibDecompressor.streamPtr + 12, "i32");
+				const nextOut = zlibModule.HEAPU32[streamPtrU32 + 2]; // next_out (offset 8)
+				const availOut = zlibModule.HEAPU32[streamPtrU32 + 3]; // avail_out (offset 12)
 				const copyLen = Math.min(len, availOut);
+				
+				// Use direct HEAP8 copy for byte-level operations
 				for (let i = 0; i < copyLen; i++) {
-					const value = zlibModule.getValue(buf + i, "i8");
-					zlibModule.setValue(nextOut + i, value, "i8");
+					zlibModule.HEAPU8[nextOut + i] = zlibModule.HEAPU8[buf + i];
 				}
-				zlibModule.setValue(zlibDecompressor.streamPtr + 8, nextOut + copyLen, "i32");
-				zlibModule.setValue(zlibDecompressor.streamPtr + 12, availOut - copyLen, "i32");
+				zlibModule.HEAPU32[streamPtrU32 + 2] = nextOut + copyLen;      // next_out
+				zlibModule.HEAPU32[streamPtrU32 + 3] = availOut - copyLen;     // avail_out
 
 				return 0;
 			}, "iiii");
@@ -289,7 +304,7 @@ class ZlibDecompressor {
 			const msg = finish ? "expected end of stream but got error code" : "failed with error code";
 			throw new Error(`Deflate64 decompression ${finish ? "incomplete: " + msg : msg}: ${result}`);
 		}
-		const outputLength = zlibModule.getValue(zlibDecompressor.streamPtr + 8, "i32") - zlibDecompressor.outputPtr;
+		const outputLength = zlibModule.HEAPU32[streamPtrU32 + 2] - zlibDecompressor.outputPtr; // next_out (offset 8)
 		return copyFromWasmMemory(zlibModule, zlibDecompressor.outputPtr, outputLength);
 	}
 
@@ -411,23 +426,18 @@ function getWindowBits(format) {
 }
 
 function copyToWasmMemory(zlibModule, sourceData, targetPtr) {
-	for (let i = 0; i < sourceData.length; i++) {
-		zlibModule.setValue(targetPtr + i, sourceData[i], "i8");
-	}
+	// Use direct HEAP8 access for maximum performance
+	zlibModule.HEAPU8.set(sourceData, targetPtr);
 }
 
 function copyFromWasmMemory(zlibModule, sourcePtr, length) {
-	const output = new Uint8Array(length);
-	for (let i = 0; i < length; i++) {
-		output[i] = zlibModule.getValue(sourcePtr + i, "i8") & 0xFF;
-	}
-	return output;
+	// Use direct HEAP8 access for maximum performance
+	return zlibModule.HEAPU8.slice(sourcePtr, sourcePtr + length);
 }
 
 function initStream(zlibModule, streamPtr) {
-	for (let i = 0; i < 56; i++) {
-		zlibModule.setValue(streamPtr + i, 0, "i8");
-	}
+	// Use direct HEAP8 access with fill for maximum performance
+	zlibModule.HEAPU8.fill(0, streamPtr, streamPtr + 56);
 }
 
 function convertChunkToUint8Array(chunk) {
