@@ -40,7 +40,7 @@ WASM_FLAGS=-s WASM=1 \
            -s DYNAMIC_EXECUTION=0 \
            -s EVAL_CTORS=1 \
            -s AGGRESSIVE_VARIABLE_ELIMINATION=1 \
-           --closure 1 \
+           --closure=1 \
            --closure-args="--compilation_level=ADVANCED_OPTIMIZATIONS" \
            --quiet=1
 
