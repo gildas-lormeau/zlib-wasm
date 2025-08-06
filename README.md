@@ -10,12 +10,18 @@ A WebAssembly implementation of the zlib compression library that provides the s
 - **High Performance**: Optimized WebAssembly with direct memory access
 - **Small Bundle**: 50KB WASM + 5.6KB JS wrapper
 
+## Install from NPM
+
+```sh
+npm install zlib-web-streams
+```
+
 ## Usage
 
 ### Basic Compression/Decompression
 
 ```javascript
-import { CompressionStream, DecompressionStream } from 'zlib-web-streams';
+import { CompressionStream, DecompressionStream } from 'zlib-web-streams/bundle';
 
 // Compress data
 const compressor = new CompressionStream('deflate');
@@ -110,22 +116,22 @@ try {
 
 #### CRC32 Options
 
-| Option | Type | Format | Description |
-|--------|------|---------|-------------|
-| `computeCRC32` | boolean | `deflate-raw` only | Enable CRC32 computation during compression |
-| `expectedCRC32` | number | `deflate-raw`, `deflate64-raw` | Expected CRC32 value for verification during decompression |
+| Option          | Type    | Format                         | Description                                                |
+| --------------- | ------- | ------------------------------ | ---------------------------------------------------------- |
+| `computeCRC32`  | boolean | `deflate-raw` only             | Enable CRC32 computation during compression                |
+| `expectedCRC32` | number  | `deflate-raw`, `deflate64-raw` | Expected CRC32 value for verification during decompression |
 
 **Note**: CRC32 computation is only available for `deflate-raw` format during compression. CRC32 verification works for both `deflate-raw` and `deflate64-raw` formats during decompression. Other formats (`deflate`, `gzip`, `deflate64`) ignore CRC32 options since they have their own integrity mechanisms.
 
 ## Supported Formats
 
-| Format | Compression | Decompression | Notes |
-|--------|-------------|---------------|-------|
-| `deflate` | ✅ | ✅ | RFC 1951 (with zlib headers) |
-| `deflate-raw` | ✅ | ✅ | Raw deflate (no headers) |
-| `gzip` | ✅ | ✅ | RFC 1952 |
-| `deflate64` | ❌ | ✅ | ZIP deflate64 method |
-| `deflate64-raw` | ❌ | ✅ | Raw deflate64 (no headers) |
+| Format          | Compression | Decompression | Notes                        |
+| --------------- | ----------- | ------------- | ---------------------------- |
+| `deflate`       | ✅           | ✅             | RFC 1951 (with zlib headers) |
+| `deflate-raw`   | ✅           | ✅             | Raw deflate (no headers)     |
+| `gzip`          | ✅           | ✅             | RFC 1952                     |
+| `deflate64`     | ❌           | ✅             | ZIP deflate64 method         |
+| `deflate64-raw` | ❌           | ✅             | Raw deflate64 (no headers)   |
 
 ## API
 
