@@ -1,3 +1,4 @@
+// deno-lint-ignore-file no-this-alias
 /**
  * CompressionStream & DecompressionStream Polyfill
  */
@@ -30,22 +31,24 @@ async function initModule(moduleCode, wasmBinary) {
 
 class ZlibCompressor {
 	constructor(level = Z_DEFAULT_COMPRESSION, format = "deflate") {
-		this.level = level;
-		this.format = format;
-		this.streamPtr = null;
-		this.inputPtr = null;
-		this.outputPtr = null;
-		this.inputSize = 32768;
-		this.outputSize = 32768;
-		this.initialized = false;
+		const zlibCompressor = this;
+		zlibCompressor.level = level;
+		zlibCompressor.format = format;
+		zlibCompressor.streamPtr = null;
+		zlibCompressor.inputPtr = null;
+		zlibCompressor.outputPtr = null;
+		zlibCompressor.inputSize = 32768;
+		zlibCompressor.outputSize = 32768;
+		zlibCompressor.initialized = false;
 	}
 
 	initialize() {
-		if (this.initialized) return;
-		this.streamPtr = zlibModule._malloc(56);
-		this.inputPtr = zlibModule._malloc(this.inputSize);
-		this.outputPtr = zlibModule._malloc(this.outputSize);
-		initStream(zlibModule, this.streamPtr);
+		const zlibCompressor = this;
+		if (zlibCompressor.initialized) return;
+		zlibCompressor.streamPtr = zlibModule._malloc(56);
+		zlibCompressor.inputPtr = zlibModule._malloc(zlibCompressor.inputSize);
+		zlibCompressor.outputPtr = zlibModule._malloc(zlibCompressor.outputSize);
+		initStream(zlibModule, zlibCompressor.streamPtr);
 		const result = zlibModule.ccall("deflateInit2_", "number", [
 			"number",
 			"number",
@@ -55,34 +58,35 @@ class ZlibCompressor {
 			"number",
 			"string",
 			"number",
-		], [this.streamPtr, this.level, 8, getWindowBits(this.format), 8, 0, "1.3.1.1-motley", 56]);
+		], [zlibCompressor.streamPtr, zlibCompressor.level, 8, getWindowBits(zlibCompressor.format), 8, 0, "1.3.1.1-motley", 56]);
 		if (result !== 0) {
 			throw new Error(`Compression initialization failed: ${result}`);
 		}
-		this.initialized = true;
+		zlibCompressor.initialized = true;
 	}
 
 	async compress(data, finish = false, flushMode = "auto") {
-		if (!this.initialized) {
-			await this.initialize();
+		const zlibCompressor = this;
+		if (!zlibCompressor.initialized) {
+			await zlibCompressor.initialize();
 		}
 		if (data.length === 0 && !finish) {
 			return new Uint8Array(0);
 		}
 
 		// Handle large data by chunking
-		if (data.length > this.inputSize) {
+		if (data.length > zlibCompressor.inputSize) {
 			const results = [];
 			let offset = 0;
 
 			// Process data in chunks
 			while (offset < data.length) {
-				const chunkSize = Math.min(this.inputSize, data.length - offset);
+				const chunkSize = Math.min(zlibCompressor.inputSize, data.length - offset);
 				const chunk = data.slice(offset, offset + chunkSize);
 				const isLastChunk = offset + chunkSize >= data.length;
 
 				// Only finish on the last chunk if finish is requested
-				const chunkResult = await this.compressSingleChunk(chunk, finish && isLastChunk, flushMode);
+				const chunkResult = await zlibCompressor.compressSingleChunk(chunk, finish && isLastChunk, flushMode);
 				if (chunkResult.length > 0) {
 					results.push(chunkResult);
 				}
@@ -102,81 +106,86 @@ class ZlibCompressor {
 		}
 
 		// For small data, use original logic
-		return this.compressSingleChunk(data, finish, flushMode);
+		return zlibCompressor.compressSingleChunk(data, finish, flushMode);
 	}
 
 	compressSingleChunk(data, finish = false, flushMode = "auto") {
-		if (data.length > this.inputSize) {
-			throw new Error(`Chunk size ${data.length} exceeds buffer size ${this.inputSize}`);
+		const zlibCompressor = this;
+		if (data.length > zlibCompressor.inputSize) {
+			throw new Error(`Chunk size ${data.length} exceeds buffer size ${zlibCompressor.inputSize}`);
 		}
 
-		copyToWasmMemory(zlibModule, data, this.inputPtr);
-		zlibModule.setValue(this.streamPtr + 0, this.inputPtr, "i32");
-		zlibModule.setValue(this.streamPtr + 4, data.length, "i32");
-		zlibModule.setValue(this.streamPtr + 12, this.outputPtr, "i32");
-		zlibModule.setValue(this.streamPtr + 16, this.outputSize, "i32");
+		copyToWasmMemory(zlibModule, data, zlibCompressor.inputPtr);
+		zlibModule.setValue(zlibCompressor.streamPtr + 0, zlibCompressor.inputPtr, "i32");
+		zlibModule.setValue(zlibCompressor.streamPtr + 4, data.length, "i32");
+		zlibModule.setValue(zlibCompressor.streamPtr + 12, zlibCompressor.outputPtr, "i32");
+		zlibModule.setValue(zlibCompressor.streamPtr + 16, zlibCompressor.outputSize, "i32");
 		const flushType = finish ? Z_FINISH : (FLUSH_MODES[flushMode] || Z_NO_FLUSH);
-		const result = zlibModule._deflate(this.streamPtr, flushType);
+		const result = zlibModule._deflate(zlibCompressor.streamPtr, flushType);
 		if (result < 0 || (finish && result !== Z_STREAM_END) || (!finish && result !== Z_OK)) {
 			throw new Error(`Compression failed: ${result}`);
 		}
-		const availOut = zlibModule.getValue(this.streamPtr + 16, "i32");
-		const outputLength = this.outputSize - availOut;
-		return copyFromWasmMemory(zlibModule, this.outputPtr, outputLength);
+		const availOut = zlibModule.getValue(zlibCompressor.streamPtr + 16, "i32");
+		const outputLength = zlibCompressor.outputSize - availOut;
+		return copyFromWasmMemory(zlibModule, zlibCompressor.outputPtr, outputLength);
 	}
 
 	async finish() {
-		const finalData = await this.compress(new Uint8Array(0), true);
-		this.cleanup();
+		const zlibCompressor = this;
+		const finalData = await zlibCompressor.compress(new Uint8Array(0), true);
+		zlibCompressor.cleanup();
 		return finalData;
 	}
 
 	cleanup() {
-		if (zlibModule && this.streamPtr) {
-			zlibModule._deflateEnd(this.streamPtr);
-			zlibModule._free(this.streamPtr);
-			zlibModule._free(this.inputPtr);
-			zlibModule._free(this.outputPtr);
-			this.streamPtr = null;
-			this.inputPtr = null;
-			this.outputPtr = null;
+		const zlibCompressor = this;
+		if (zlibModule && zlibCompressor.streamPtr) {
+			zlibModule._deflateEnd(zlibCompressor.streamPtr);
+			zlibModule._free(zlibCompressor.streamPtr);
+			zlibModule._free(zlibCompressor.inputPtr);
+			zlibModule._free(zlibCompressor.outputPtr);
+			zlibCompressor.streamPtr = null;
+			zlibCompressor.inputPtr = null;
+			zlibCompressor.outputPtr = null;
 		}
-		this.initialized = false;
+		zlibCompressor.initialized = false;
 	}
 }
 
 class ZlibDecompressor {
 	constructor(format = "deflate") {
-		this.format = format;
-		this.streamPtr = null;
-		this.inputPtr = null;
-		this.outputPtr = null;
-		this.windowPtr = null;
-		this.inputSize = 32768;
-		this.outputSize = 32768;
-		this.initialized = false;
-		this.isDeflate64 = format === "deflate64" || format === "deflate64-raw";
+		const zlibDecompressor = this;
+		zlibDecompressor.format = format;
+		zlibDecompressor.streamPtr = null;
+		zlibDecompressor.inputPtr = null;
+		zlibDecompressor.outputPtr = null;
+		zlibDecompressor.windowPtr = null;
+		zlibDecompressor.inputSize = 32768;
+		zlibDecompressor.outputSize = 32768;
+		zlibDecompressor.initialized = false;
+		zlibDecompressor.isDeflate64 = format === "deflate64" || format === "deflate64-raw";
 	}
 
 	initialize() {
-		if (this.initialized) return;
-		this.streamPtr = zlibModule._malloc(56);
-		this.inputPtr = zlibModule._malloc(this.inputSize);
-		this.outputPtr = zlibModule._malloc(this.outputSize);
-		initStream(zlibModule, this.streamPtr);
+		const zlibDecompressor = this;
+		if (zlibDecompressor.initialized) return;
+		zlibDecompressor.streamPtr = zlibModule._malloc(56);
+		zlibDecompressor.inputPtr = zlibModule._malloc(zlibDecompressor.inputSize);
+		zlibDecompressor.outputPtr = zlibModule._malloc(zlibDecompressor.outputSize);
+		initStream(zlibModule, zlibDecompressor.streamPtr);
 		let result;
-		if (this.isDeflate64) {
-			this.windowPtr = zlibModule._malloc(65536);
+		if (zlibDecompressor.isDeflate64) {
+			zlibDecompressor.windowPtr = zlibModule._malloc(65536);
 			result = zlibModule.ccall("inflateBack9Init_", "number", ["number", "number", "string", "number"], [
-				this.streamPtr,
-				this.windowPtr,
+				zlibDecompressor.streamPtr,
+				zlibDecompressor.windowPtr,
 				"1.3.1.1-motley",
 				56,
 			]);
 		} else {
 			result = zlibModule.ccall("inflateInit2_", "number", ["number", "number", "string", "number"], [
-				this.streamPtr,
-				getWindowBits(this.format),
+				zlibDecompressor.streamPtr,
+				getWindowBits(zlibDecompressor.format),
 				"1.3.1.1-motley",
 				56,
 			]);
@@ -184,47 +193,48 @@ class ZlibDecompressor {
 		if (result !== 0) {
 			throw new Error(`Decompression initialization failed: ${result}`);
 		}
-		this.initialized = true;
+		zlibDecompressor.initialized = true;
 	}
 
 	async decompress(data, finish = false, flushMode = "auto") {
-		if (!this.initialized) {
-			await this.initialize();
+		const zlibDecompressor = this;
+		if (!zlibDecompressor.initialized) {
+			await zlibDecompressor.initialize();
 		}
 		if (data.length === 0 && !finish) {
 			return new Uint8Array(0);
 		}
-		if (this.isDeflate64) {
-			return this.decompressDeflate64(data, finish);
+		if (zlibDecompressor.isDeflate64) {
+			return zlibDecompressor.decompressDeflate64(data, finish);
 		}
 		const results = [];
 		let totalInputProcessed = 0;
 		while (totalInputProcessed < data.length || finish) {
 			const remainingInput = data.length - totalInputProcessed;
-			const inputChunkSize = Math.min(remainingInput, this.inputSize);
+			const inputChunkSize = Math.min(remainingInput, zlibDecompressor.inputSize);
 			if (inputChunkSize > 0) {
 				copyToWasmMemory(
 					zlibModule,
 					data.subarray(totalInputProcessed, totalInputProcessed + inputChunkSize),
-					this.inputPtr,
+					zlibDecompressor.inputPtr,
 				);
 			}
-			zlibModule.setValue(this.streamPtr + 0, this.inputPtr, "i32");
-			zlibModule.setValue(this.streamPtr + 4, inputChunkSize, "i32");
-			zlibModule.setValue(this.streamPtr + 12, this.outputPtr, "i32");
-			zlibModule.setValue(this.streamPtr + 16, this.outputSize, "i32");
+			zlibModule.setValue(zlibDecompressor.streamPtr + 0, zlibDecompressor.inputPtr, "i32");
+			zlibModule.setValue(zlibDecompressor.streamPtr + 4, inputChunkSize, "i32");
+			zlibModule.setValue(zlibDecompressor.streamPtr + 12, zlibDecompressor.outputPtr, "i32");
+			zlibModule.setValue(zlibDecompressor.streamPtr + 16, zlibDecompressor.outputSize, "i32");
 			const isLastChunk = totalInputProcessed + inputChunkSize >= data.length;
 			const flushType = (finish && isLastChunk) ? Z_FINISH : (FLUSH_MODES[flushMode] || Z_SYNC_FLUSH);
-			const result = zlibModule._inflate(this.streamPtr, flushType);
+			const result = zlibModule._inflate(zlibDecompressor.streamPtr, flushType);
 			if (result < 0 && result !== -5) {
 				throw new Error(`Decompression failed: ${result}`);
 			}
-			const availOut = zlibModule.getValue(this.streamPtr + 16, "i32");
-			const outputLength = this.outputSize - availOut;
+			const availOut = zlibModule.getValue(zlibDecompressor.streamPtr + 16, "i32");
+			const outputLength = zlibDecompressor.outputSize - availOut;
 			if (outputLength > 0) {
-				results.push(copyFromWasmMemory(zlibModule, this.outputPtr, outputLength));
+				results.push(copyFromWasmMemory(zlibModule, zlibDecompressor.outputPtr, outputLength));
 			}
-			const inputProcessed = zlibModule.getValue(this.streamPtr + 4, "i32");
+			const inputProcessed = zlibModule.getValue(zlibDecompressor.streamPtr + 4, "i32");
 			totalInputProcessed += inputChunkSize - inputProcessed;
 			if (result === Z_STREAM_END) {
 				break;
@@ -249,97 +259,102 @@ class ZlibDecompressor {
 	}
 
 	decompressDeflate64(data, finish) {
-		copyToWasmMemory(zlibModule, data, this.inputPtr);
-		zlibModule.setValue(this.streamPtr + 0, this.inputPtr, "i32");
-		zlibModule.setValue(this.streamPtr + 4, data.length, "i32");
-		zlibModule.setValue(this.streamPtr + 8, this.outputPtr, "i32");
-		zlibModule.setValue(this.streamPtr + 12, this.outputSize, "i32");
-		if (!this.inflateBack9InFunc) {
-			this.inflateBack9InFunc = zlibModule.addFunction((_, buf) => {
-				const availIn = zlibModule.getValue(this.streamPtr + 4, "i32");
+		const zlibDecompressor = this;
+		copyToWasmMemory(zlibModule, data, zlibDecompressor.inputPtr);
+		zlibModule.setValue(zlibDecompressor.streamPtr + 0, zlibDecompressor.inputPtr, "i32");
+		zlibModule.setValue(zlibDecompressor.streamPtr + 4, data.length, "i32");
+		zlibModule.setValue(zlibDecompressor.streamPtr + 8, zlibDecompressor.outputPtr, "i32");
+		zlibModule.setValue(zlibDecompressor.streamPtr + 12, zlibDecompressor.outputSize, "i32");
+		if (!zlibDecompressor.inflateBack9InFunc) {
+			zlibDecompressor.inflateBack9InFunc = zlibModule.addFunction((_, buf) => {
+				const availIn = zlibModule.getValue(zlibDecompressor.streamPtr + 4, "i32");
 				if (availIn > 0) {
-					const nextIn = zlibModule.getValue(this.streamPtr + 0, "i32");
+					const nextIn = zlibModule.getValue(zlibDecompressor.streamPtr + 0, "i32");
 					zlibModule.setValue(buf, nextIn, "i32");
 					return availIn;
 				}
 				return 0;
 			}, "iii");
-			this.inflateBack9OutFunc = zlibModule.addFunction((_, buf, len) => {
-				const nextOut = zlibModule.getValue(this.streamPtr + 8, "i32");
-				const availOut = zlibModule.getValue(this.streamPtr + 12, "i32");
+			zlibDecompressor.inflateBack9OutFunc = zlibModule.addFunction((_, buf, len) => {
+				const nextOut = zlibModule.getValue(zlibDecompressor.streamPtr + 8, "i32");
+				const availOut = zlibModule.getValue(zlibDecompressor.streamPtr + 12, "i32");
 				const copyLen = Math.min(len, availOut);
 				for (let i = 0; i < copyLen; i++) {
 					const value = zlibModule.getValue(buf + i, "i8");
 					zlibModule.setValue(nextOut + i, value, "i8");
 				}
-				zlibModule.setValue(this.streamPtr + 8, nextOut + copyLen, "i32");
-				zlibModule.setValue(this.streamPtr + 12, availOut - copyLen, "i32");
+				zlibModule.setValue(zlibDecompressor.streamPtr + 8, nextOut + copyLen, "i32");
+				zlibModule.setValue(zlibDecompressor.streamPtr + 12, availOut - copyLen, "i32");
 
 				return 0;
 			}, "iiii");
 		}
 		const result = zlibModule.ccall("inflateBack9", "number", ["number", "number", "number", "number", "number"], [
-			this.streamPtr,
-			this.inflateBack9InFunc,
+			zlibDecompressor.streamPtr,
+			zlibDecompressor.inflateBack9InFunc,
 			0,
-			this.inflateBack9OutFunc,
+			zlibDecompressor.inflateBack9OutFunc,
 			0,
 		]);
 		if (finish ? result !== 1 : (result !== 0 && result !== 1)) {
 			const msg = finish ? "expected end of stream but got error code" : "failed with error code";
 			throw new Error(`Deflate64 decompression ${finish ? "incomplete: " + msg : msg}: ${result}`);
 		}
-		const outputLength = zlibModule.getValue(this.streamPtr + 8, "i32") - this.outputPtr;
-		return copyFromWasmMemory(zlibModule, this.outputPtr, outputLength);
+		const outputLength = zlibModule.getValue(zlibDecompressor.streamPtr + 8, "i32") - zlibDecompressor.outputPtr;
+		return copyFromWasmMemory(zlibModule, zlibDecompressor.outputPtr, outputLength);
 	}
 
 	async finish() {
-		const finalData = await this.decompress(new Uint8Array(0), true);
-		this.cleanup();
+		const zlibDecompressor = this;
+		const finalData = await zlibDecompressor.decompress(new Uint8Array(0), true);
+		zlibDecompressor.cleanup();
 		return finalData;
 	}
 
 	cleanup() {
-		if (zlibModule && this.streamPtr) {
-			if (this.isDeflate64) {
-				zlibModule._inflateBack9End(this.streamPtr);
-				if (this.windowPtr) {
-					zlibModule._free(this.windowPtr);
-					this.windowPtr = null;
+		const zlibDecompressor = this;
+		if (zlibModule && zlibDecompressor.streamPtr) {
+			if (zlibDecompressor.isDeflate64) {
+				zlibModule._inflateBack9End(zlibDecompressor.streamPtr);
+				if (zlibDecompressor.windowPtr) {
+					zlibModule._free(zlibDecompressor.windowPtr);
+					zlibDecompressor.windowPtr = null;
 				}
-				if (this.inflateBack9InFunc) {
-					zlibModule.removeFunction(this.inflateBack9InFunc);
-					this.inflateBack9InFunc = null;
+				if (zlibDecompressor.inflateBack9InFunc) {
+					zlibModule.removeFunction(zlibDecompressor.inflateBack9InFunc);
+					zlibDecompressor.inflateBack9InFunc = null;
 				}
-				if (this.inflateBack9OutFunc) {
-					zlibModule.removeFunction(this.inflateBack9OutFunc);
-					this.inflateBack9OutFunc = null;
+				if (zlibDecompressor.inflateBack9OutFunc) {
+					zlibModule.removeFunction(zlibDecompressor.inflateBack9OutFunc);
+					zlibDecompressor.inflateBack9OutFunc = null;
 				}
 			} else {
-				zlibModule._inflateEnd(this.streamPtr);
+				zlibModule._inflateEnd(zlibDecompressor.streamPtr);
 			}
-			zlibModule._free(this.streamPtr);
-			zlibModule._free(this.inputPtr);
-			zlibModule._free(this.outputPtr);
-			this.streamPtr = null;
-			this.inputPtr = null;
-			this.outputPtr = null;
+			zlibModule._free(zlibDecompressor.streamPtr);
+			zlibModule._free(zlibDecompressor.inputPtr);
+			zlibModule._free(zlibDecompressor.outputPtr);
+			zlibDecompressor.streamPtr = null;
+			zlibDecompressor.inputPtr = null;
+			zlibDecompressor.outputPtr = null;
 		}
-		this.initialized = false;
+		zlibDecompressor.initialized = false;
 	}
 }
 
 class BaseStreamPolyfill {
 	constructor(format, processorClass, methodName, processorArgs = []) {
-		this.format = format;
-		this.createTransformStream(processorClass, methodName, processorArgs);
+		const baseProcessor = this;
+		baseProcessor.format = format;
+		baseProcessor.createTransformStream(processorClass, methodName, processorArgs);
 	}
 
 	createTransformStream(ProcessorClass, methodName, processorArgs) {
+		const baseProcessor = this;
 		let processor;
 		const transformStream = new TransformStream({
 			start: async () => {
-				processor = new ProcessorClass(...processorArgs, this.format);
+				processor = new ProcessorClass(...processorArgs, baseProcessor.format);
 				await processor.initialize();
 			},
 			transform: async (chunk, controller) => {
@@ -360,8 +375,8 @@ class BaseStreamPolyfill {
 				}
 			},
 		});
-		this._readable = transformStream.readable;
-		this._writable = transformStream.writable;
+		baseProcessor._readable = transformStream.readable;
+		baseProcessor._writable = transformStream.writable;
 	}
 
 	get readable() {
