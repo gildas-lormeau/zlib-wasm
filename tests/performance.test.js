@@ -79,7 +79,8 @@ async function runPerformanceTests() {
 			results.push({ level, time: compressionTime, ratio: compressionRatio, size: compressed.length });
 
 			console.log(
-				`   Level ${level}: ${compressionTime.toFixed(2)}ms, ratio: ${(compressionRatio * 100).toFixed(2)
+				`   Level ${level}: ${compressionTime.toFixed(2)}ms, ratio: ${
+					(compressionRatio * 100).toFixed(2)
 				}%, size: ${compressed.length}`,
 			);
 		}
@@ -106,11 +107,13 @@ async function runPerformanceTests() {
 		const decompressionTime = performance.now() - decompressStartTime;
 
 		console.log(
-			`   Compression: ${compressionTime.toFixed(2)}ms (${(largeData.length / compressionTime / 1000).toFixed(2)
+			`   Compression: ${compressionTime.toFixed(2)}ms (${
+				(largeData.length / compressionTime / 1000).toFixed(2)
 			} MB/s)`,
 		);
 		console.log(
-			`   Decompression: ${decompressionTime.toFixed(2)}ms (${(decompressed.length / decompressionTime / 1000).toFixed(2)
+			`   Decompression: ${decompressionTime.toFixed(2)}ms (${
+				(decompressed.length / decompressionTime / 1000).toFixed(2)
 			} MB/s)`,
 		);
 

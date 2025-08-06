@@ -46,7 +46,8 @@
     "packageJson": {
       "dependencies": [
         "npm:@rollup/plugin-terser@~0.4.4",
-        "npm:vite@^7.0.6"
+        "npm:vite@^7.0.6",
+        "npm:zlib-web-streams@1"
       ]
     }
   }

@@ -56,41 +56,40 @@ export class TestUtils {
 	}
 
 	static async streamToUint8Array(stream) {
-		const reader = stream.getReader();
-		const chunks = [];
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			chunks.push(value);
-		}
-		const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-		const result = new Uint8Array(totalLength);
-		let offset = 0;
-		for (const chunk of chunks) {
-			result.set(chunk, offset);
-			offset += chunk.length;
-		}
-		return result;
+		// Use the safer Response pattern which properly handles stream errors
+		const response = new Response(stream);
+		const arrayBuffer = await response.arrayBuffer();
+		return new Uint8Array(arrayBuffer);
 	}
 
 	static async compressData(data, format = "deflate", options = {}) {
 		const { CompressionStream } = await this.importCompressionStreams();
 		const compressionStream = new CompressionStream(format, options);
-		const writer = compressionStream.writable.getWriter();
-		const readerPromise = this.streamToUint8Array(compressionStream.readable);
-		await writer.write(data);
-		await writer.close();
-		return readerPromise;
+
+		// Use safer pipeline pattern
+		return this.streamToUint8Array(
+			new ReadableStream({
+				start(controller) {
+					controller.enqueue(data);
+					controller.close();
+				},
+			}).pipeThrough(compressionStream),
+		);
 	}
 
 	static async decompressData(compressedData, format = "deflate") {
 		const { DecompressionStream } = await this.importCompressionStreams();
 		const decompressionStream = new DecompressionStream(format);
-		const writer = decompressionStream.writable.getWriter();
-		const readerPromise = this.streamToUint8Array(decompressionStream.readable);
-		await writer.write(compressedData);
-		await writer.close();
-		return readerPromise;
+
+		// Use safer pipeline pattern
+		return this.streamToUint8Array(
+			new ReadableStream({
+				start(controller) {
+					controller.enqueue(compressedData);
+					controller.close();
+				},
+			}).pipeThrough(decompressionStream),
+		);
 	}
 
 	static generateTestData(size) {

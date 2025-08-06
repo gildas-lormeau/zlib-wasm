@@ -14,6 +14,8 @@ const testFiles = [
 	"deflate64.test.js",
 	"deflate64-zip.test.js",
 	"bundle.test.js",
+	"crc32.test.js",
+	"crc32-verification.test.js",
 ];
 
 let totalTests = 0;

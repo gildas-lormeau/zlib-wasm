@@ -84,6 +84,42 @@ async function runBasicCompressionTests() {
 		TestUtils.assertArraysEqual(decompressed, binaryData, "Decompressed binary data should match original");
 	});
 
+	await TestUtils.test("Level 0 compression (deflate-raw)", async () => {
+		const testData = TestUtils.stringToUint8Array("Hello, World! This is a test of level 0 compression.");
+		
+		// Test level 0 compression with deflate-raw
+		const { CompressionStream } = await TestUtils.importCompressionStreams();
+		const compressor = new CompressionStream("deflate-raw", { level: 0 });
+		
+		const writer = compressor.writable.getWriter();
+		const readerPromise = TestUtils.streamToUint8Array(compressor.readable);
+		
+		await writer.write(testData);
+		await writer.close();
+		const compressed = await readerPromise;
+		
+		// Level 0 should return data as-is for deflate-raw
+		TestUtils.assertArraysEqual(compressed, testData, "Level 0 deflate-raw should return data unchanged");
+		
+		console.log(`   Level 0: ${testData.length} -> ${compressed.length} bytes (${((compressed.length / testData.length) * 100).toFixed(1)}% ratio)`);
+		console.log(`   ✓ Level 0 compression returns raw data without any compression overhead`);
+		
+		// Test level 0 with CRC32 computation
+		const compressorWithCRC = new CompressionStream("deflate-raw", { level: 0, computeCRC32: true });
+		const writerCRC = compressorWithCRC.writable.getWriter();
+		const readerPromiseCRC = TestUtils.streamToUint8Array(compressorWithCRC.readable);
+		
+		await writerCRC.write(testData);
+		await writerCRC.close();
+		const compressedCRC = await readerPromiseCRC;
+		
+		// Should still return data as-is but with CRC32 computed
+		TestUtils.assertArraysEqual(compressedCRC, testData, "Level 0 deflate-raw with CRC32 should return data unchanged");
+		TestUtils.assert(compressorWithCRC.crc32 !== 0, "CRC32 should be computed for level 0 compression");
+		
+		console.log(`   ✓ Level 0 with CRC32: 0x${compressorWithCRC.crc32.toString(16).padStart(8, '0').toUpperCase()}`);
+	});
+
 	await TestUtils.test("Web Worker compression/decompression", async () => {
 		console.log("   Testing CompressionStream/DecompressionStream in Web Worker");
 

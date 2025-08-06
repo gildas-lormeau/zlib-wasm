@@ -95,7 +95,7 @@ $(WASMLIB) $(JSLIB): $(OBJS)
 wasm-module: $(OBJS) $(DEFLATE64_OBJS)
 	@echo "Building WebAssembly module..."
 	@$(CC) $(CFLAGS) $(WASM_FLAGS) \
-		-s EXPORTED_FUNCTIONS='["_malloc","_free","_deflate","_inflate","_deflateInit2_","_inflateInit2_","_deflateEnd","_inflateEnd","_inflateBack9Init_","_inflateBack9","_inflateBack9End"]' \
+		-s EXPORTED_FUNCTIONS='["_malloc","_free","_deflate","_inflate","_deflateInit2_","_inflateInit2_","_deflateEnd","_inflateEnd","_inflateBack9Init_","_inflateBack9","_inflateBack9End","_crc32"]' \
 		$(OBJS) $(DEFLATE64_OBJS) -o $(WASM_MODULE_JS) 2>/dev/null
 	@echo "✓ Built WebAssembly module"
 

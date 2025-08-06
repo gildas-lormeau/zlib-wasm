@@ -30,7 +30,7 @@ async function initModule(moduleCode, wasmBinary) {
 }
 
 class ZlibCompressor {
-	constructor(level = Z_DEFAULT_COMPRESSION, format = "deflate") {
+	constructor(level = Z_DEFAULT_COMPRESSION, format = "deflate", computeCRC32 = false) {
 		const zlibCompressor = this;
 		zlibCompressor.level = level;
 		zlibCompressor.format = format;
@@ -40,6 +40,9 @@ class ZlibCompressor {
 		zlibCompressor.inputSize = 32768;
 		zlibCompressor.outputSize = 32768;
 		zlibCompressor.initialized = false;
+		const isRawFormat = format === "deflate-raw";
+		zlibCompressor.computeCRC32 = isRawFormat && computeCRC32;
+		zlibCompressor.crc32 = 0;
 	}
 
 	initialize() {
@@ -103,7 +106,23 @@ class ZlibCompressor {
 		if (data.length > zlibCompressor.inputSize) {
 			throw new Error(`Chunk size ${data.length} exceeds buffer size ${zlibCompressor.inputSize}`);
 		}
+		if (zlibCompressor.level === 0 && zlibCompressor.format === "deflate-raw") {
+			if (zlibCompressor.computeCRC32 && data.length > 0) {
+				const tempPtr = zlibModule._malloc(data.length);
+				try {
+					zlibModule.HEAPU8.set(data, tempPtr);
+					zlibCompressor.crc32 = zlibModule._crc32(zlibCompressor.crc32, tempPtr, data.length);
+				} finally {
+					zlibModule._free(tempPtr);
+				}
+			}
+			return data;
+		}
+		
 		copyToWasmMemory(zlibModule, data, zlibCompressor.inputPtr);
+		if (zlibCompressor.computeCRC32 && data.length > 0) {
+			zlibCompressor.crc32 = zlibModule._crc32(zlibCompressor.crc32, zlibCompressor.inputPtr, data.length);
+		}
 		const streamPtrU32 = zlibCompressor.streamPtr >>> 2;
 		zlibModule.HEAPU32[streamPtrU32 + 0] = zlibCompressor.inputPtr;
 		zlibModule.HEAPU32[streamPtrU32 + 1] = data.length;
@@ -142,7 +161,7 @@ class ZlibCompressor {
 }
 
 class ZlibDecompressor {
-	constructor(format = "deflate") {
+	constructor(format = "deflate", verifyCRC32 = false, expectedCRC32) {
 		const zlibDecompressor = this;
 		zlibDecompressor.format = format;
 		zlibDecompressor.streamPtr = null;
@@ -153,6 +172,10 @@ class ZlibDecompressor {
 		zlibDecompressor.outputSize = 32768;
 		zlibDecompressor.initialized = false;
 		zlibDecompressor.isDeflate64 = format === "deflate64" || format === "deflate64-raw";
+		const isRawFormat = format === "deflate-raw";
+		zlibDecompressor.verifyCRC32 = isRawFormat && verifyCRC32;
+		zlibDecompressor.expectedCRC32 = expectedCRC32;
+		zlibDecompressor.crc32 = 0;
 	}
 
 	initialize() {
@@ -222,7 +245,11 @@ class ZlibDecompressor {
 			const availOut = zlibModule.HEAPU32[streamPtrU32 + 4];
 			const outputLength = zlibDecompressor.outputSize - availOut;
 			if (outputLength > 0) {
-				results.push(copyFromWasmMemory(zlibModule, zlibDecompressor.outputPtr, outputLength));
+				const outputChunk = copyFromWasmMemory(zlibModule, zlibDecompressor.outputPtr, outputLength);
+				if (zlibDecompressor.verifyCRC32) {
+					zlibDecompressor.crc32 = zlibModule._crc32(zlibDecompressor.crc32, zlibDecompressor.outputPtr, outputLength);
+				}
+				results.push(outputChunk);
 			}
 			const inputProcessed = zlibModule.HEAPU32[streamPtrU32 + 1];
 			totalInputProcessed += inputChunkSize - inputProcessed;
@@ -249,19 +276,12 @@ class ZlibDecompressor {
 
 	decompressDeflate64(data, finish) {
 		const zlibDecompressor = this;
-
-		// If the stream is already complete, don't try to decompress again
 		if (zlibDecompressor.deflate64Complete) {
 			return new Uint8Array(0);
 		}
-
 		copyToWasmMemory(zlibModule, data, zlibDecompressor.inputPtr);
-
-		// State variables for the callbacks
 		const inputOffset = 0;
 		const results = [];
-
-		// Input callback: provide pointer to next input data and return available bytes
 		const inFunc = zlibModule.addFunction((_, bufPtr) => {
 			if (inputOffset >= data.length) {
 				return 0; // No more input available
@@ -275,17 +295,16 @@ class ZlibDecompressor {
 
 			return remainingBytes;
 		}, "iii");
-
-		// Output callback: process output data
 		const outFunc = zlibModule.addFunction((_, buf, len) => {
 			if (len > 0) {
-				// Copy output data
+				if (zlibDecompressor.verifyCRC32) {
+					zlibDecompressor.crc32 = zlibModule._crc32(zlibDecompressor.crc32, buf, len);
+				}
 				const outputChunk = copyFromWasmMemory(zlibModule, buf, len);
 				results.push(outputChunk);
 			}
 			return 0; // Success
 		}, "iiii");
-
 		const result = zlibModule.ccall("inflateBack9", "number", ["number", "number", "number", "number", "number"], [
 			zlibDecompressor.streamPtr,
 			inFunc,
@@ -293,16 +312,11 @@ class ZlibDecompressor {
 			outFunc,
 			0,
 		]);
-
-		// Clean up function pointers
 		zlibModule.removeFunction(inFunc);
 		zlibModule.removeFunction(outFunc);
-
-		// Check if the stream is complete
 		if (result === 1) {
 			zlibDecompressor.deflate64Complete = true;
 		}
-
 		if (result < 0) {
 			const msg = "failed with error code";
 			const errorDescriptions = {
@@ -316,14 +330,10 @@ class ZlibDecompressor {
 			const errorDesc = errorDescriptions[result.toString()] || 'unknown error';
 			throw new Error(`Deflate64 decompression ${msg}: ${result} (${errorDesc})`);
 		}
-
-		// For finish=true, we expect Z_STREAM_END (1), but if the stream was already complete, that's okay
 		if (finish && result !== 1 && !zlibDecompressor.deflate64Complete) {
 			const msg = "expected end of stream but got error code";
 			throw new Error(`Deflate64 decompression incomplete: ${msg}: ${result}`);
 		}
-
-		// Combine all output chunks
 		const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
 		const output = new Uint8Array(totalLength);
 		let offset = 0;
@@ -339,6 +349,11 @@ class ZlibDecompressor {
 		const zlibDecompressor = this;
 		const finalData = await zlibDecompressor.decompress(new Uint8Array(0), true);
 		zlibDecompressor.cleanup();
+		if (zlibDecompressor.verifyCRC32) {
+			if (zlibDecompressor.crc32 !== zlibDecompressor.expectedCRC32) {
+				throw new Error(`CRC32 mismatch: expected ${zlibDecompressor.expectedCRC32.toString(16).toUpperCase().padStart(8, '0')}, got ${zlibDecompressor.crc32.toString(16).toUpperCase().padStart(8, '0')}`);
+			}
+		}
 		return finalData;
 	}
 
@@ -385,7 +400,8 @@ class BaseStreamPolyfill {
 		let processor;
 		const transformStream = new TransformStream({
 			start: async () => {
-				processor = new ProcessorClass(...processorArgs, baseProcessor.format);
+				processor = new ProcessorClass(...processorArgs);
+				baseProcessor._processor = processor;
 				await processor.initialize();
 			},
 			transform: async (chunk, controller) => {
@@ -401,8 +417,14 @@ class BaseStreamPolyfill {
 					if (finalData.length > 0) {
 						controller.enqueue(finalData);
 					}
-				} finally {
 					processor.cleanup();
+				} catch (error) {
+					try {
+						processor.cleanup();
+					} catch (_cleanupError) {
+						// Ignore cleanup errors if the main error is what we care about
+					}
+					controller.error(error);
 				}
 			},
 		});
@@ -427,13 +449,23 @@ class BaseStreamPolyfill {
 class CompressionStream extends BaseStreamPolyfill {
 	constructor(format, options = {}) {
 		const level = options.level !== undefined ? options.level : 6;
-		super(format, ZlibCompressor, "compress", [level]);
+		const computeCRC32 = options.computeCRC32 || false;
+		super(format, ZlibCompressor, "compress", [level, format, computeCRC32]);
+	}
+
+	get crc32() {
+		return this._processor ? this._processor.crc32 : 0;
 	}
 }
 
 class DecompressionStream extends BaseStreamPolyfill {
-	constructor(format) {
-		super(format, ZlibDecompressor, "decompress");
+	constructor(format, options = {}) {
+		const verifyCRC32 = options.expectedCRC32 !== undefined;
+		super(format, ZlibDecompressor, "decompress", [format, verifyCRC32, options.expectedCRC32]);
+	}
+
+	get crc32() {
+		return this._processor ? this._processor.crc32 : 0;
 	}
 }
 

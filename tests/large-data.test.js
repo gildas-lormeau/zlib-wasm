@@ -28,7 +28,8 @@ async function verifyBugFix() {
 			}
 
 			console.log(
-				`   ✓ Size ${size}: ${compressed.length} bytes compressed (${(compressed.length / size * 100).toFixed(2)
+				`   ✓ Size ${size}: ${compressed.length} bytes compressed (${
+					(compressed.length / size * 100).toFixed(2)
 				}%)`,
 			);
 		}
@@ -82,7 +83,8 @@ async function verifyBugFix() {
 
 		const compressionRatio = compressed.length / size;
 		console.log(
-			`   ✓ Random data: ${(compressionRatio * 100).toFixed(2)
+			`   ✓ Random data: ${
+				(compressionRatio * 100).toFixed(2)
 			}% compression ratio (expected ~100% for random data)`,
 		);
 	});

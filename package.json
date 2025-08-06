@@ -39,5 +39,8 @@
   "devDependencies": {
     "@rollup/plugin-terser": "^0.4.4",
     "vite": "^7.0.6"
+  },
+  "dependencies": {
+    "zlib-web-streams": "^1.0.0"
   }
 }
