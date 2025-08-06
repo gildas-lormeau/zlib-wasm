@@ -1,6 +1,6 @@
 {
 	"name": "zlib-web-streams",
-	"version": "1.0.2",
+	"version": "1.0.4",
 	"description": "Zlib compression library compiled to WebAssembly",
 	"exports": {
 		".": "./src/index.js",

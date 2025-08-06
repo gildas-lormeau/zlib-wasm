@@ -1,6 +1,6 @@
 {
   "name": "zlib-web-streams",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "description": "Zlib compression library compiled to WebAssembly",
   "author": "Jean-loup Gailly and Mark Adler (Zlib authors), Gildas Lormeau (zlib-web-streams)",
   "license": "Zlib",
@@ -39,8 +39,5 @@
   "devDependencies": {
     "@rollup/plugin-terser": "^0.4.4",
     "vite": "^7.0.6"
-  },
-  "dependencies": {
-    "zlib-web-streams": "^1.0.0"
   }
 }
