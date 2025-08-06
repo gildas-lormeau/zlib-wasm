@@ -19,7 +19,7 @@ A WebAssembly implementation of the zlib compression library that provides the s
 import { CompressionStream, DecompressionStream } from 'zlib-wasm';
 
 // Compress data
-const compressor = new CompressionStream('deflate', { level: 6 });
+const compressor = new CompressionStream('deflate');
 const compressed = await new Response(
   new Uint8Array([1, 2, 3, 4, 5]).pipeThrough(compressor)
 ).arrayBuffer();
