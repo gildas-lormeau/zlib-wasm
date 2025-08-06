@@ -12,6 +12,7 @@ const testFiles = [
 	"edge-cases.test.js",
 	"large-data.test.js",
 	"deflate64.test.js",
+	"deflate64-zip.test.js",
 	"bundle.test.js",
 ];
 

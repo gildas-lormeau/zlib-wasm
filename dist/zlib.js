@@ -232,47 +232,56 @@ class ZlibDecompressor {
   }
   decompressDeflate64(data, finish) {
     const zlibDecompressor = this;
-    copyToWasmMemory(zlibModule, data, zlibDecompressor.inputPtr);
-    const streamPtrU32 = zlibDecompressor.streamPtr >>> 2;
-    zlibModule.HEAPU32[streamPtrU32 + 0] = zlibDecompressor.inputPtr;
-    zlibModule.HEAPU32[streamPtrU32 + 1] = data.length;
-    zlibModule.HEAPU32[streamPtrU32 + 2] = zlibDecompressor.outputPtr;
-    zlibModule.HEAPU32[streamPtrU32 + 3] = zlibDecompressor.outputSize;
-    if (!zlibDecompressor.inflateBack9InFunc) {
-      zlibDecompressor.inflateBack9InFunc = zlibModule.addFunction((_, buf) => {
-        const availIn = zlibModule.HEAPU32[streamPtrU32 + 1];
-        if (availIn > 0) {
-          const nextIn = zlibModule.HEAPU32[streamPtrU32 + 0];
-          zlibModule.HEAPU32[buf >>> 2] = nextIn;
-          return availIn;
-        }
-        return 0;
-      }, "iii");
-      zlibDecompressor.inflateBack9OutFunc = zlibModule.addFunction((_, buf, len) => {
-        const nextOut = zlibModule.HEAPU32[streamPtrU32 + 2];
-        const availOut = zlibModule.HEAPU32[streamPtrU32 + 3];
-        const copyLen = Math.min(len, availOut);
-        for (let i = 0; i < copyLen; i++) {
-          zlibModule.HEAPU8[nextOut + i] = zlibModule.HEAPU8[buf + i];
-        }
-        zlibModule.HEAPU32[streamPtrU32 + 2] = nextOut + copyLen;
-        zlibModule.HEAPU32[streamPtrU32 + 3] = availOut - copyLen;
-        return 0;
-      }, "iiii");
+    if (zlibDecompressor.deflate64Complete) {
+      return new Uint8Array(0);
     }
+    copyToWasmMemory(zlibModule, data, zlibDecompressor.inputPtr);
+    const inputOffset = 0;
+    const results = [];
+    const inFunc = zlibModule.addFunction((_, bufPtr) => {
+      if (inputOffset >= data.length) {
+        return 0;
+      }
+      const remainingBytes = data.length - inputOffset;
+      const currentInputPtr = zlibDecompressor.inputPtr + inputOffset;
+      zlibModule.HEAPU32[bufPtr >>> 2] = currentInputPtr;
+      return remainingBytes;
+    }, "iii");
+    const outFunc = zlibModule.addFunction((_, buf, len) => {
+      if (len > 0) {
+        const outputChunk = copyFromWasmMemory(zlibModule, buf, len);
+        results.push(outputChunk);
+      }
+      return 0;
+    }, "iiii");
     const result = zlibModule.ccall("inflateBack9", "number", ["number", "number", "number", "number", "number"], [
       zlibDecompressor.streamPtr,
-      zlibDecompressor.inflateBack9InFunc,
+      inFunc,
       0,
-      zlibDecompressor.inflateBack9OutFunc,
+      outFunc,
       0
     ]);
-    if (finish ? result !== 1 : result !== 0 && result !== 1) {
-      const msg = finish ? "expected end of stream but got error code" : "failed with error code";
-      throw new Error(`Deflate64 decompression ${finish ? "incomplete: " + msg : msg}: ${result}`);
+    zlibModule.removeFunction(inFunc);
+    zlibModule.removeFunction(outFunc);
+    if (result === 1) {
+      zlibDecompressor.deflate64Complete = true;
     }
-    const outputLength = zlibModule.HEAPU32[streamPtrU32 + 2] - zlibDecompressor.outputPtr;
-    return copyFromWasmMemory(zlibModule, zlibDecompressor.outputPtr, outputLength);
+    if (result < 0 && result !== -5) {
+      const msg = "failed with error code";
+      throw new Error(`Deflate64 decompression ${msg}: ${result}`);
+    }
+    if (finish && result !== 1 && !zlibDecompressor.deflate64Complete) {
+      const msg = "expected end of stream but got error code";
+      throw new Error(`Deflate64 decompression incomplete: ${msg}: ${result}`);
+    }
+    const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
+    const output = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of results) {
+      output.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return output;
   }
   async finish() {
     const zlibDecompressor = this;
