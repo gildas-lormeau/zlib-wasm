@@ -1,0 +1,62 @@
+{
+	"name": "zlib-wasm",
+	"version": "1.0.0",
+	"description": "Zlib compression library compiled to WebAssembly",
+	"exports": "./tests/test-runner.js",
+	"tasks": {
+		"test": "deno run --allow-read --allow-net --allow-run tests/test-runner.js",
+		"build": "./scripts/build-dist-wasm.sh && vite build",
+		"lint": "deno lint tests/",
+		"fmt": "deno fmt tests/",
+		"fmt:check": "deno fmt --check tests/"
+	},
+	"imports": {
+		"@std/path": "https://deno.land/std@0.224.0/path/mod.ts",
+		"@std/assert": "https://deno.land/std@0.224.0/assert/mod.ts"
+	},
+	"compilerOptions": {
+		"lib": [
+			"deno.worker",
+			"dom",
+			"dom.iterable",
+			"esnext"
+		],
+		"strict": true
+	},
+	"lint": {
+		"rules": {
+			"tags": [
+				"recommended"
+			]
+		},
+		"exclude": [
+			"dist-wasm/",
+			"dist/",
+			"emsdk/",
+			"zlib/"
+		]
+	},
+	"fmt": {
+		"useTabs": true,
+		"lineWidth": 120,
+		"indentWidth": 4,
+		"semiColons": true,
+		"singleQuote": false,
+		"proseWrap": "preserve",
+		"exclude": [
+			"dist-wasm/",
+			"emsdk/",
+			"zlib/"
+		]
+	},
+	"test": {
+		"include": [
+			"tests/"
+		],
+		"exclude": [
+			"dist-wasm/",
+			"emsdk/",
+			"zlib/"
+		]
+	}
+}

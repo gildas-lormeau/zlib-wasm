@@ -1,0 +1,35 @@
+{
+	"name": "zlib-wasm",
+	"version": "1.0.0",
+	"description": "Zlib compression library compiled to WebAssembly",
+	"author": "Jean-loup Gailly and Mark Adler (Zlib authors), Gildas Lormeau (zlib-wasm)",
+	"license": "Zlib",
+	"main": "dist-wasm/zlib-module.js",
+	"type": "module",
+	"scripts": {
+		"build": "./scripts/build-dist-wasm.sh && vite build",
+		"test": "deno run --allow-read --allow-net --allow-run tests/test-runner.js",
+		"clean": "rm -rf dist-wasm zlib/*.o zlib/*.a zlib/*.wasm zlib/*.js dist"
+	},
+	"keywords": [
+		"zlib",
+		"compression",
+		"deflate",
+		"deflate64",
+		"gzip",
+		"inflate",
+		"streaming",
+		"wasm"
+	],
+	"files": [
+		"dist-wasm/zlib-module.js",
+		"dist-wasm/zlib-module.wasm"
+	],
+	"directories": {
+		"test": "tests"
+	},
+	"devDependencies": {
+		"@rollup/plugin-terser": "^0.4.4",
+		"vite": "^7.0.6"
+	}
+}

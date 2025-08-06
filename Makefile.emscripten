@@ -1,0 +1,104 @@
+# Makefile for building zlib as a WebAssembly module using Emscripten
+# Copyright (C) 1995-2024 Jean-loup Gailly, Mark Adler
+# For conditions of distribution and use, see copyright notice in zlib.h
+
+# To build the WebAssembly module, type:
+#    make -f Makefile.emscripten
+
+# Emscripten compiler
+CC=emcc
+AR=emar
+RANLIB=emranlib
+
+# Optimization and debug flags
+# Compilation flags (optimized for size)
+CFLAGS = -Oz -I. -I./contrib/infback9 -DWITH_GZFILEOP -flto -fno-exceptions -fno-rtti -DNDEBUG -ffast-math -fno-stack-protector
+# Alternative size optimizations:
+# CFLAGS = -Os -I. -I./contrib/infback9 -DWITH_GZFILEOP -flto  # Less aggressive size optimization
+# For debugging, use:
+# CFLAGS=-O0 -g -DZLIB_DEBUG -DNO_GZCOMPRESS
+
+# WebAssembly specific flags
+WASM_FLAGS=-s WASM=1 \
+           -s EXPORTED_RUNTIME_METHODS='["ccall","getValue","setValue","addFunction","removeFunction"]' \
+           -s EXPORTED_FUNCTIONS='["_malloc","_free"]' \
+           -s ALLOW_MEMORY_GROWTH=1 \
+           -s ALLOW_TABLE_GROWTH=1 \
+           -s RESERVED_FUNCTION_POINTERS=8 \
+           -s MODULARIZE=1 \
+           -s EXPORT_NAME='ZlibModule' \
+           -s ENVIRONMENT='web,webview,worker' \
+           -s INITIAL_MEMORY=1MB \
+           -s MAXIMUM_MEMORY=4GB \
+           --closure 1 \
+           -s ELIMINATE_DUPLICATE_FUNCTIONS=1 \
+           -s SINGLE_FILE=0 \
+           -s ASSERTIONS=0 \
+           -s NO_FILESYSTEM=1 \
+           -s ABORTING_MALLOC=0 \
+		   -s AGGRESSIVE_VARIABLE_ELIMINATION=1 \
+		   -s VERBOSE=0
+
+# Source files (excluded gzip-related files for WebAssembly compatibility)
+ZLIB_SRCS = adler32.c \
+            compress.c \
+            crc32.c \
+            deflate.c \
+            inflate.c \
+            infback.c \
+            inftrees.c \
+            inffast.c \
+            trees.c \
+            uncompr.c \
+            zutil.c
+
+DEFLATE64_SRCS = contrib/infback9/infback9.c \
+                 contrib/infback9/inftree9.c
+
+# Object files
+OBJS = $(ZLIB_SRCS:.c=.o)
+DEFLATE64_OBJS = $(DEFLATE64_SRCS:.c=.o)
+
+# Output directories and files
+BUILD_DIR = ../dist-wasm
+STATICLIB = libz.a
+WASMLIB = zlib.wasm
+JSLIB = zlib.js
+WASM_MODULE_JS = $(BUILD_DIR)/zlib-module.js
+WASM_MODULE_WASM = $(BUILD_DIR)/zlib-module.wasm
+
+# Ensure build directory exists
+$(shell mkdir -p $(BUILD_DIR))
+
+# Default target
+all: $(STATICLIB) $(WASMLIB) $(JSLIB) wasm-module
+
+# Compile source files to object files
+%.o: %.c
+	@$(CC) $(CFLAGS) -c $< -o $@
+
+# Create static library
+$(STATICLIB): $(OBJS)
+	@$(AR) rcs $@ $(OBJS)
+	@$(RANLIB) $@
+
+# Create WebAssembly module with JavaScript wrapper
+$(WASMLIB) $(JSLIB): $(OBJS)
+	@$(CC) $(CFLAGS) $(WASM_FLAGS) $(OBJS) -o $(JSLIB)
+
+# Create a more comprehensive JavaScript wrapper with exported functions
+wasm-module: $(OBJS) $(DEFLATE64_OBJS)
+	@echo "Building WebAssembly module..."
+	@$(CC) $(CFLAGS) $(WASM_FLAGS) \
+		-s EXPORTED_FUNCTIONS='["_malloc","_free","_deflate","_inflate","_deflateInit2_","_inflateInit2_","_deflateEnd","_inflateEnd","_inflateBack9Init_","_inflateBack9","_inflateBack9End"]' \
+		$(OBJS) $(DEFLATE64_OBJS) -o $(WASM_MODULE_JS)
+	@echo "✓ Built WebAssembly module"
+
+# Clean build artifacts (including those in build directory)
+clean:
+	@rm -f *.o $(STATICLIB) $(WASMLIB) $(JSLIB)
+	@rm -f contrib/infback9/*.o
+	@rm -f $(WASM_MODULE_JS) $(WASM_MODULE_WASM)
+	@echo "✓ Cleaned build artifacts"
+
+.PHONY: all clean test wasm-module
