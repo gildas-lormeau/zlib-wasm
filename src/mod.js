@@ -73,19 +73,13 @@ class ZlibCompressor {
 		if (data.length === 0 && !finish) {
 			return new Uint8Array(0);
 		}
-
-		// Handle large data by chunking
 		if (data.length > zlibCompressor.inputSize) {
 			const results = [];
 			let offset = 0;
-
-			// Process data in chunks
 			while (offset < data.length) {
 				const chunkSize = Math.min(zlibCompressor.inputSize, data.length - offset);
 				const chunk = data.slice(offset, offset + chunkSize);
 				const isLastChunk = offset + chunkSize >= data.length;
-
-				// Only finish on the last chunk if finish is requested
 				const chunkResult = await zlibCompressor.compressSingleChunk(chunk, finish && isLastChunk, flushMode);
 				if (chunkResult.length > 0) {
 					results.push(chunkResult);
@@ -93,8 +87,6 @@ class ZlibCompressor {
 
 				offset += chunkSize;
 			}
-
-			// Combine all results
 			const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
 			const combined = new Uint8Array(totalLength);
 			let combinedOffset = 0;
@@ -104,8 +96,6 @@ class ZlibCompressor {
 			}
 			return combined;
 		}
-
-		// For small data, use original logic
 		return zlibCompressor.compressSingleChunk(data, finish, flushMode);
 	}
 
@@ -114,7 +104,6 @@ class ZlibCompressor {
 		if (data.length > zlibCompressor.inputSize) {
 			throw new Error(`Chunk size ${data.length} exceeds buffer size ${zlibCompressor.inputSize}`);
 		}
-
 		copyToWasmMemory(zlibModule, data, zlibCompressor.inputPtr);
 		zlibModule.setValue(zlibCompressor.streamPtr + 0, zlibCompressor.inputPtr, "i32");
 		zlibModule.setValue(zlibCompressor.streamPtr + 4, data.length, "i32");
