@@ -32,7 +32,16 @@ WASM_FLAGS=-s WASM=1 \
            -s SINGLE_FILE=0 \
            -s ASSERTIONS=0 \
            -s NO_FILESYSTEM=1 \
-           --closure 1
+           -s NO_EXIT_RUNTIME=1 \
+           -s STACK_SIZE=64KB \
+           -s MALLOC='emmalloc' \
+           -s SUPPORT_LONGJMP=0 \
+           -s DISABLE_EXCEPTION_CATCHING=1 \
+           -s DYNAMIC_EXECUTION=0 \
+           -s EVAL_CTORS=1 \
+           -s AGGRESSIVE_VARIABLE_ELIMINATION=1 \
+           --closure 1 \
+           --closure-args="--compilation_level=ADVANCED_OPTIMIZATIONS"
 
 # Source files (excluded gzip-related files for WebAssembly compatibility)
 ZLIB_SRCS = adler32.c \
