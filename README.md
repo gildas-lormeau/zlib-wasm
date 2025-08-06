@@ -21,7 +21,7 @@ npm install zlib-web-streams
 ### Basic Compression/Decompression
 
 ```javascript
-import { CompressionStream, DecompressionStream } from 'zlib-web-streams/bundle';
+import { CompressionStream, DecompressionStream } from 'zlib-web-streams/dist/min';
 
 // Compress data
 const compressor = new CompressionStream('deflate');
