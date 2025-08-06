@@ -249,33 +249,33 @@ class ZlibDecompressor {
 
 	decompressDeflate64(data, finish) {
 		const zlibDecompressor = this;
-		
+
 		// If the stream is already complete, don't try to decompress again
 		if (zlibDecompressor.deflate64Complete) {
 			return new Uint8Array(0);
 		}
-		
+
 		copyToWasmMemory(zlibModule, data, zlibDecompressor.inputPtr);
-		
+
 		// State variables for the callbacks
 		const inputOffset = 0;
 		const results = [];
-		
+
 		// Input callback: provide pointer to next input data and return available bytes
 		const inFunc = zlibModule.addFunction((_, bufPtr) => {
 			if (inputOffset >= data.length) {
 				return 0; // No more input available
 			}
-			
+
 			const remainingBytes = data.length - inputOffset;
 			const currentInputPtr = zlibDecompressor.inputPtr + inputOffset;
-			
+
 			// Set the buffer pointer to current input position
 			zlibModule.HEAPU32[bufPtr >>> 2] = currentInputPtr;
-			
+
 			return remainingBytes;
 		}, "iii");
-		
+
 		// Output callback: process output data
 		const outFunc = zlibModule.addFunction((_, buf, len) => {
 			if (len > 0) {
@@ -285,7 +285,7 @@ class ZlibDecompressor {
 			}
 			return 0; // Success
 		}, "iiii");
-		
+
 		const result = zlibModule.ccall("inflateBack9", "number", ["number", "number", "number", "number", "number"], [
 			zlibDecompressor.streamPtr,
 			inFunc,
@@ -293,27 +293,36 @@ class ZlibDecompressor {
 			outFunc,
 			0,
 		]);
-		
+
 		// Clean up function pointers
 		zlibModule.removeFunction(inFunc);
 		zlibModule.removeFunction(outFunc);
-		
+
 		// Check if the stream is complete
 		if (result === 1) {
 			zlibDecompressor.deflate64Complete = true;
 		}
-		
-		if (result < 0 && result !== -5) {
+
+		if (result < 0) {
 			const msg = "failed with error code";
-			throw new Error(`Deflate64 decompression ${msg}: ${result}`);
+			const errorDescriptions = {
+				'-1': 'system error',
+				'-2': 'stream error',
+				'-3': 'data error (corrupted/invalid data)',
+				'-4': 'memory error',
+				'-5': 'buffer error',
+				'-6': 'version error'
+			};
+			const errorDesc = errorDescriptions[result.toString()] || 'unknown error';
+			throw new Error(`Deflate64 decompression ${msg}: ${result} (${errorDesc})`);
 		}
-		
+
 		// For finish=true, we expect Z_STREAM_END (1), but if the stream was already complete, that's okay
 		if (finish && result !== 1 && !zlibDecompressor.deflate64Complete) {
 			const msg = "expected end of stream but got error code";
 			throw new Error(`Deflate64 decompression incomplete: ${msg}: ${result}`);
 		}
-		
+
 		// Combine all output chunks
 		const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
 		const output = new Uint8Array(totalLength);
@@ -322,7 +331,7 @@ class ZlibDecompressor {
 			output.set(chunk, offset);
 			offset += chunk.length;
 		}
-		
+
 		return output;
 	}
 
