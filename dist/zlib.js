@@ -157,7 +157,7 @@ class ZlibDecompressor {
     zlibDecompressor.outputSize = 32768;
     zlibDecompressor.initialized = false;
     zlibDecompressor.isDeflate64 = format === "deflate64" || format === "deflate64-raw";
-    const isRawFormat = format === "deflate-raw";
+    const isRawFormat = format === "deflate-raw" || format === "deflate64-raw";
     zlibDecompressor.verifyCRC32 = isRawFormat && verifyCRC32;
     zlibDecompressor.expectedCRC32 = expectedCRC32;
     zlibDecompressor.crc32 = 0;

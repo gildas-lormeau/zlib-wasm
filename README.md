@@ -69,7 +69,7 @@ const rawResult = deflate64RawData.pipeThrough(deflate64RawDecompressor);
 
 ### CRC32 Support
 
-The library provides CRC32 computation and verification for `deflate-raw` format only:
+The library provides CRC32 computation and verification for `deflate-raw` and `deflate64-raw` formats:
 
 #### CRC32 Computation
 
@@ -88,9 +88,11 @@ console.log(`CRC32: 0x${crc32Value.toString(16).padStart(8, '0').toUpperCase()}`
 #### CRC32 Verification
 
 ```javascript
-// Verify CRC32 during decompression
+// Verify CRC32 during decompression (deflate-raw or deflate64-raw)
 const expectedCRC32 = 0x12345678; // Known CRC32 value
 const decompressor = new DecompressionStream('deflate-raw', { expectedCRC32 });
+// or
+const deflate64Decompressor = new DecompressionStream('deflate64-raw', { expectedCRC32 });
 
 try {
   const decompressed = await new Response(
@@ -111,9 +113,9 @@ try {
 | Option | Type | Format | Description |
 |--------|------|---------|-------------|
 | `computeCRC32` | boolean | `deflate-raw` only | Enable CRC32 computation during compression |
-| `expectedCRC32` | number | `deflate-raw` only | Expected CRC32 value for verification during decompression |
+| `expectedCRC32` | number | `deflate-raw`, `deflate64-raw` | Expected CRC32 value for verification during decompression |
 
-**Note**: CRC32 features are only available for the `deflate-raw` format. Other formats (`deflate`, `gzip`, `deflate64`) ignore CRC32 options since they have their own integrity mechanisms.
+**Note**: CRC32 computation is only available for `deflate-raw` format during compression. CRC32 verification works for both `deflate-raw` and `deflate64-raw` formats during decompression. Other formats (`deflate`, `gzip`, `deflate64`) ignore CRC32 options since they have their own integrity mechanisms.
 
 ## Supported Formats
 
@@ -153,10 +155,10 @@ new DecompressionStream(format, options?)
 **Parameters:**
 - `format`: `'deflate'` | `'deflate-raw'` | `'gzip'` | `'deflate64'` | `'deflate64-raw'`
 - `options` (optional):
-  - `expectedCRC32`: number (only for `deflate-raw`, throws error if CRC32 doesn't match)
+  - `expectedCRC32`: number (only for `deflate-raw` and `deflate64-raw`, throws error if CRC32 doesn't match)
 
 **Properties:**
-- `crc32`: number (computed CRC32 value, only for `deflate-raw`)
+- `crc32`: number (computed CRC32 value, only for `deflate-raw` and `deflate64-raw`)
 
 ## Browser Compatibility
 
