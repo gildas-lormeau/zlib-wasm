@@ -105,21 +105,18 @@ class ZlibCompressor {
 			throw new Error(`Chunk size ${data.length} exceeds buffer size ${zlibCompressor.inputSize}`);
 		}
 		copyToWasmMemory(zlibModule, data, zlibCompressor.inputPtr);
-		
-		// Use direct HEAP32 access for better performance (4-byte aligned 32-bit writes)
-		const streamPtrU32 = zlibCompressor.streamPtr >>> 2; // Convert to 32-bit index
-		zlibModule.HEAPU32[streamPtrU32 + 0] = zlibCompressor.inputPtr;      // next_in (offset 0)
-		zlibModule.HEAPU32[streamPtrU32 + 1] = data.length;                  // avail_in (offset 4)
-		zlibModule.HEAPU32[streamPtrU32 + 3] = zlibCompressor.outputPtr;     // next_out (offset 12)
-		zlibModule.HEAPU32[streamPtrU32 + 4] = zlibCompressor.outputSize;    // avail_out (offset 16)
-		
+		const streamPtrU32 = zlibCompressor.streamPtr >>> 2;
+		zlibModule.HEAPU32[streamPtrU32 + 0] = zlibCompressor.inputPtr;
+		zlibModule.HEAPU32[streamPtrU32 + 1] = data.length;
+		zlibModule.HEAPU32[streamPtrU32 + 3] = zlibCompressor.outputPtr;
+		zlibModule.HEAPU32[streamPtrU32 + 4] = zlibCompressor.outputSize;
+
 		const flushType = finish ? Z_FINISH : (FLUSH_MODES[flushMode] || Z_NO_FLUSH);
 		const result = zlibModule._deflate(zlibCompressor.streamPtr, flushType);
 		if (result < 0 || (finish && result !== Z_STREAM_END) || (!finish && result !== Z_OK)) {
 			throw new Error(`Compression failed: ${result}`);
 		}
-		
-		const availOut = zlibModule.HEAPU32[streamPtrU32 + 4]; // avail_out (offset 16)
+		const availOut = zlibModule.HEAPU32[streamPtrU32 + 4];
 		const outputLength = zlibCompressor.outputSize - availOut;
 		return copyFromWasmMemory(zlibModule, zlibCompressor.outputPtr, outputLength);
 	}
@@ -213,27 +210,23 @@ class ZlibDecompressor {
 					zlibDecompressor.inputPtr,
 				);
 			}
-			
-			// Use direct HEAP32 access for better performance
 			const streamPtrU32 = zlibDecompressor.streamPtr >>> 2;
-			zlibModule.HEAPU32[streamPtrU32 + 0] = zlibDecompressor.inputPtr;      // next_in (offset 0)
-			zlibModule.HEAPU32[streamPtrU32 + 1] = inputChunkSize;                 // avail_in (offset 4)
-			zlibModule.HEAPU32[streamPtrU32 + 3] = zlibDecompressor.outputPtr;     // next_out (offset 12)
-			zlibModule.HEAPU32[streamPtrU32 + 4] = zlibDecompressor.outputSize;    // avail_out (offset 16)
-			
+			zlibModule.HEAPU32[streamPtrU32 + 0] = zlibDecompressor.inputPtr;
+			zlibModule.HEAPU32[streamPtrU32 + 1] = inputChunkSize;
+			zlibModule.HEAPU32[streamPtrU32 + 3] = zlibDecompressor.outputPtr;
+			zlibModule.HEAPU32[streamPtrU32 + 4] = zlibDecompressor.outputSize;
 			const isLastChunk = totalInputProcessed + inputChunkSize >= data.length;
 			const flushType = (finish && isLastChunk) ? Z_FINISH : (FLUSH_MODES[flushMode] || Z_SYNC_FLUSH);
 			const result = zlibModule._inflate(zlibDecompressor.streamPtr, flushType);
 			if (result < 0 && result !== -5) {
 				throw new Error(`Decompression failed: ${result}`);
 			}
-			
-			const availOut = zlibModule.HEAPU32[streamPtrU32 + 4]; // avail_out (offset 16)
+			const availOut = zlibModule.HEAPU32[streamPtrU32 + 4];
 			const outputLength = zlibDecompressor.outputSize - availOut;
 			if (outputLength > 0) {
 				results.push(copyFromWasmMemory(zlibModule, zlibDecompressor.outputPtr, outputLength));
 			}
-			const inputProcessed = zlibModule.HEAPU32[streamPtrU32 + 1]; // avail_in (offset 4)
+			const inputProcessed = zlibModule.HEAPU32[streamPtrU32 + 1];
 			totalInputProcessed += inputChunkSize - inputProcessed;
 			if (result === Z_STREAM_END) {
 				break;
@@ -246,7 +239,6 @@ class ZlibDecompressor {
 			}
 			break;
 		}
-
 		const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
 		const output = new Uint8Array(totalLength);
 		let offset = 0;
@@ -260,36 +252,30 @@ class ZlibDecompressor {
 	decompressDeflate64(data, finish) {
 		const zlibDecompressor = this;
 		copyToWasmMemory(zlibModule, data, zlibDecompressor.inputPtr);
-		
-		// Use direct HEAP32 access for better performance
 		const streamPtrU32 = zlibDecompressor.streamPtr >>> 2;
-		zlibModule.HEAPU32[streamPtrU32 + 0] = zlibDecompressor.inputPtr;      // next_in (offset 0)
-		zlibModule.HEAPU32[streamPtrU32 + 1] = data.length;                    // avail_in (offset 4)
-		zlibModule.HEAPU32[streamPtrU32 + 2] = zlibDecompressor.outputPtr;     // next_out (offset 8)
-		zlibModule.HEAPU32[streamPtrU32 + 3] = zlibDecompressor.outputSize;    // avail_out (offset 12)
-		
+		zlibModule.HEAPU32[streamPtrU32 + 0] = zlibDecompressor.inputPtr;
+		zlibModule.HEAPU32[streamPtrU32 + 1] = data.length;
+		zlibModule.HEAPU32[streamPtrU32 + 2] = zlibDecompressor.outputPtr;
+		zlibModule.HEAPU32[streamPtrU32 + 3] = zlibDecompressor.outputSize;
 		if (!zlibDecompressor.inflateBack9InFunc) {
 			zlibDecompressor.inflateBack9InFunc = zlibModule.addFunction((_, buf) => {
-				const availIn = zlibModule.HEAPU32[streamPtrU32 + 1]; // avail_in (offset 4)
+				const availIn = zlibModule.HEAPU32[streamPtrU32 + 1];
 				if (availIn > 0) {
-					const nextIn = zlibModule.HEAPU32[streamPtrU32 + 0]; // next_in (offset 0)
+					const nextIn = zlibModule.HEAPU32[streamPtrU32 + 0];
 					zlibModule.HEAPU32[buf >>> 2] = nextIn;
 					return availIn;
 				}
 				return 0;
 			}, "iii");
 			zlibDecompressor.inflateBack9OutFunc = zlibModule.addFunction((_, buf, len) => {
-				const nextOut = zlibModule.HEAPU32[streamPtrU32 + 2]; // next_out (offset 8)
-				const availOut = zlibModule.HEAPU32[streamPtrU32 + 3]; // avail_out (offset 12)
+				const nextOut = zlibModule.HEAPU32[streamPtrU32 + 2];
+				const availOut = zlibModule.HEAPU32[streamPtrU32 + 3];
 				const copyLen = Math.min(len, availOut);
-				
-				// Use direct HEAP8 copy for byte-level operations
 				for (let i = 0; i < copyLen; i++) {
 					zlibModule.HEAPU8[nextOut + i] = zlibModule.HEAPU8[buf + i];
 				}
-				zlibModule.HEAPU32[streamPtrU32 + 2] = nextOut + copyLen;      // next_out
-				zlibModule.HEAPU32[streamPtrU32 + 3] = availOut - copyLen;     // avail_out
-
+				zlibModule.HEAPU32[streamPtrU32 + 2] = nextOut + copyLen;
+				zlibModule.HEAPU32[streamPtrU32 + 3] = availOut - copyLen;
 				return 0;
 			}, "iiii");
 		}
@@ -304,7 +290,7 @@ class ZlibDecompressor {
 			const msg = finish ? "expected end of stream but got error code" : "failed with error code";
 			throw new Error(`Deflate64 decompression ${finish ? "incomplete: " + msg : msg}: ${result}`);
 		}
-		const outputLength = zlibModule.HEAPU32[streamPtrU32 + 2] - zlibDecompressor.outputPtr; // next_out (offset 8)
+		const outputLength = zlibModule.HEAPU32[streamPtrU32 + 2] - zlibDecompressor.outputPtr;
 		return copyFromWasmMemory(zlibModule, zlibDecompressor.outputPtr, outputLength);
 	}
 
@@ -426,17 +412,14 @@ function getWindowBits(format) {
 }
 
 function copyToWasmMemory(zlibModule, sourceData, targetPtr) {
-	// Use direct HEAP8 access for maximum performance
 	zlibModule.HEAPU8.set(sourceData, targetPtr);
 }
 
 function copyFromWasmMemory(zlibModule, sourcePtr, length) {
-	// Use direct HEAP8 access for maximum performance
 	return zlibModule.HEAPU8.slice(sourcePtr, sourcePtr + length);
 }
 
 function initStream(zlibModule, streamPtr) {
-	// Use direct HEAP8 access with fill for maximum performance
 	zlibModule.HEAPU8.fill(0, streamPtr, streamPtr + 56);
 }
 
