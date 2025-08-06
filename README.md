@@ -49,18 +49,6 @@ const fastCompression = new CompressionStream('gzip', { level: 1 });
 const balanced = new CompressionStream('gzip', { level: 6 });
 ```
 
-### Deflate-raw Support
-
-```javascript
-// Raw deflate format (no headers, just compressed data)
-const rawCompressor = new CompressionStream('deflate-raw');
-const rawDecompressor = new DecompressionStream('deflate-raw');
-
-// Useful for custom protocols or when you need minimal overhead
-const compressed = inputData.pipeThrough(rawCompressor);
-const decompressed = compressed.pipeThrough(rawDecompressor);
-```
-
 ### Deflate64 Support
 
 ```javascript
