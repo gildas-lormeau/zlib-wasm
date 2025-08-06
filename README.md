@@ -6,7 +6,6 @@ A WebAssembly implementation of the zlib compression library that provides the s
 
 - **Web Standards Compatible**: Drop-in replacement for `CompressionStream` and `DecompressionStream`
 - **Compression Levels**: Support for compression levels 1-9 (unlike native Web APIs)
-- **Multiple Formats**: Deflate, Deflate-raw, Gzip, and Deflate64 support
 - **Deflate64 Decompression**: Handles Deflate64-compressed data (decompression only)
 - **High Performance**: Optimized WebAssembly with direct memory access
 - **Small Bundle**: 50KB WASM + 5.6KB JS wrapper
