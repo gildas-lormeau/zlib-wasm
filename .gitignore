@@ -1,4 +1,2 @@
 emsdk/
 node_modules/
-dist/
-dist-wasm/
