@@ -307,7 +307,7 @@ class ZlibDecompressor {
       return new Uint8Array(0);
     }
     copyToWasmMemory(zlibModule, data, zlibDecompressor.inputPtr);
-    let inputOffset = 0;
+    const inputOffset = 0;
     const results = [];
     const inFunc = zlibModule.addFunction((_, bufPtr) => {
       if (inputOffset >= data.length) {
@@ -316,9 +316,7 @@ class ZlibDecompressor {
       const remainingBytes = data.length - inputOffset;
       const currentInputPtr = zlibDecompressor.inputPtr + inputOffset;
       zlibModule.HEAPU32[bufPtr >>> 2] = currentInputPtr;
-      const bytesToRead = remainingBytes;
-      inputOffset += bytesToRead;
-      return bytesToRead;
+      return remainingBytes;
     }, SIGNATURE_III);
     const outFunc = zlibModule.addFunction((_, buf, len) => {
       if (len > 0) {
