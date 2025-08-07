@@ -104,7 +104,7 @@ const FLUSH_MODES = {
 	auto: Z_NO_FLUSH,
 };
 
-let zlibModule;
+let zlibModule, zlibModulePromise;
 
 class BufferPool {
 	constructor() {
@@ -145,11 +145,10 @@ class BufferPool {
 
 const bufferPool = new BufferPool();
 
-async function initModule(moduleCode, wasmBinary) {
-	const moduleFunction = new Function([], `${moduleCode};return ZlibModule`);
+function initModule(moduleCode, wasmBinary) {
+	const moduleFunction = new Function([], moduleCode + ";return ZlibModule");
 	const ZlibModuleFactory = moduleFunction([]);
-	zlibModule = await ZlibModuleFactory({ wasmBinary });
-	return zlibModule;
+	zlibModulePromise = ZlibModuleFactory({ wasmBinary });
 }
 
 class ZlibCompressor {
@@ -167,8 +166,11 @@ class ZlibCompressor {
 		zlibCompressor.crc32 = 0;
 	}
 
-	initialize() {
+	async initialize() {
 		const zlibCompressor = this;
+		if (!zlibModule) {
+			zlibModule = await zlibModulePromise;
+		}
 		zlibCompressor.streamPtr = zlibModule[FUNC_MALLOC](STREAM_STRUCT_SIZE);
 		zlibCompressor.inputPtr = zlibModule[FUNC_MALLOC](zlibCompressor.inputSize);
 		zlibCompressor.outputPtr = zlibModule[FUNC_MALLOC](zlibCompressor.outputSize);
@@ -184,7 +186,7 @@ class ZlibCompressor {
 			TYPE_NUMBER,
 		], [zlibCompressor.streamPtr, zlibCompressor.level, DEFLATE_METHOD, getWindowBits(zlibCompressor.format), DEFLATE_MEM_LEVEL, DEFLATE_STRATEGY, ZLIB_VERSION, STREAM_STRUCT_SIZE]);
 		if (result !== 0) {
-			throw new Error(`${MSG_COMPRESSION_INIT_FAILED}: ${result}`);
+			throw new Error(MSG_COMPRESSION_INIT_FAILED + ": " + result);
 		}
 	}
 
@@ -221,7 +223,7 @@ class ZlibCompressor {
 	compressSingleChunk(data, finish = false, flushMode = FLUSH_MODE_AUTO) {
 		const zlibCompressor = this;
 		if (data.length > zlibCompressor.inputSize) {
-			throw new Error(`${MSG_CHUNK_SIZE_EXCEEDED} ${data.length} ${MSG_EXCEEDS_BUFFER_SIZE} ${zlibCompressor.inputSize}`);
+			throw new Error(MSG_CHUNK_SIZE_EXCEEDED + " " + data.length + " " + MSG_EXCEEDS_BUFFER_SIZE + " " + zlibCompressor.inputSize);
 		}
 		if (zlibCompressor.level === 0 && zlibCompressor.format === FORMAT_DEFLATE_RAW) {
 			if (zlibCompressor.computeCRC32 && data.length > 0) {
@@ -248,7 +250,7 @@ class ZlibCompressor {
 		const flushType = finish ? Z_FINISH : (FLUSH_MODES[flushMode] || Z_NO_FLUSH);
 		const result = zlibModule[FUNC_DEFLATE](zlibCompressor.streamPtr, flushType);
 		if (result < 0 || (finish && result !== Z_STREAM_END) || (!finish && result !== Z_OK)) {
-			throw new Error(`${MSG_COMPRESSION_FAILED}: ${result}`);
+			throw new Error(MSG_COMPRESSION_FAILED + ": " + result);
 		}
 		const availOut = zlibModule.HEAPU32[streamPtrU32 + 4];
 		const outputLength = zlibCompressor.outputSize - availOut;
@@ -293,8 +295,11 @@ class ZlibDecompressor {
 		zlibDecompressor.crc32 = 0;
 	}
 
-	initialize() {
+	async initialize() {
 		const zlibDecompressor = this;
+		if (!zlibModule) {
+			zlibModule = await zlibModulePromise;
+		}
 		zlibDecompressor.streamPtr = zlibModule[FUNC_MALLOC](STREAM_STRUCT_SIZE);
 		zlibDecompressor.inputPtr = zlibModule[FUNC_MALLOC](zlibDecompressor.inputSize);
 		zlibDecompressor.outputPtr = zlibModule[FUNC_MALLOC](zlibDecompressor.outputSize);
@@ -317,7 +322,7 @@ class ZlibDecompressor {
 			]);
 		}
 		if (result !== 0) {
-			throw new Error(`${MSG_DECOMPRESSION_INIT_FAILED}: ${result}`);
+			throw new Error(MSG_DECOMPRESSION_INIT_FAILED + ": " + result);
 		}
 	}
 
@@ -350,7 +355,7 @@ class ZlibDecompressor {
 			const flushType = (finish && isLastChunk) ? Z_FINISH : (FLUSH_MODES[flushMode] || Z_SYNC_FLUSH);
 			const result = zlibModule[FUNC_INFLATE](zlibDecompressor.streamPtr, flushType);
 			if (result < 0 && result !== Z_BUF_ERROR) {
-				throw new Error(`${MSG_DECOMPRESSION_FAILED}: ${result}`);
+				throw new Error(MSG_DECOMPRESSION_FAILED + ": " + result);
 			}
 			const availOut = zlibModule.HEAPU32[streamPtrU32 + 4];
 			const outputLength = zlibDecompressor.outputSize - availOut;
@@ -423,11 +428,11 @@ class ZlibDecompressor {
 		if (result < 0) {
 			const msg = MSG_DEFLATE64_DECOMPRESSION_FAILED;
 			const errorDesc = ERROR_DESCRIPTIONS[result.toString()] || ERROR_UNKNOWN;
-			throw new Error(`${msg}: ${result} (${errorDesc})`);
+			throw new Error(msg + ": " + result + " (" + errorDesc + ")");
 		}
 		if (finish && result !== 1 && !zlibDecompressor.deflate64Complete) {
 			const msg = MSG_DEFLATE64_DECOMPRESSION_INCOMPLETE;
-			throw new Error(`${msg}: ${result}`);
+			throw new Error(msg + ": " + result);
 		}
 		const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
 		const output = bufferPool.get(totalLength);
@@ -445,7 +450,7 @@ class ZlibDecompressor {
 		const finalData = zlibDecompressor.decompress(new Uint8Array(0), true);
 		zlibDecompressor.cleanup();
 		if (zlibDecompressor.expectedCRC32 !== undefined && zlibDecompressor.computeCRC32 && zlibDecompressor.crc32 !== zlibDecompressor.expectedCRC32) {
-			throw new Error(`${MSG_CRC32_MISMATCH} ${zlibDecompressor.expectedCRC32.toString(16).toUpperCase().padStart(HEX_PAD_LENGTH, HEX_PAD_CHAR)}, got ${zlibDecompressor.crc32.toString(16).toUpperCase().padStart(HEX_PAD_LENGTH, HEX_PAD_CHAR)}`);
+			throw new Error(MSG_CRC32_MISMATCH + " " + zlibDecompressor.expectedCRC32.toString(16).toUpperCase().padStart(HEX_PAD_LENGTH, HEX_PAD_CHAR) + ", got " + zlibDecompressor.crc32.toString(16).toUpperCase().padStart(HEX_PAD_LENGTH, HEX_PAD_CHAR));
 		}
 		return finalData;
 	}
@@ -562,7 +567,7 @@ function getWindowBits(format) {
 		case FORMAT_GZIP:
 			return GZIP_WINDOW_BITS;
 		default:
-			throw new Error(`${MSG_UNSUPPORTED_FORMAT}: ${format}`);
+			throw new Error(MSG_UNSUPPORTED_FORMAT + ": " + format);
 	}
 }
 
