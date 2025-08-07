@@ -19,9 +19,11 @@ function wasmEmbedPlugin() {
 			}
 			if (id.endsWith(".js?raw")) {
 				return readFile(id.replace("?raw", ""), "utf8").then((content) => {
-					// Escape backticks and other template literal chars
-					const escapedContent = content.replace(/`/g, "\\`").replace(/\$/g, "\\$");
-					return `export default \`${escapedContent}\`;`;
+					const minifiedContent = terser().transform(content, {
+						compress: { drop_console: true },
+						mangle: true,
+					}).code.replace(/\s+/g, " ");
+					return "export default " + JSON.stringify(minifiedContent) + ";";
 				});
 			}
 		},

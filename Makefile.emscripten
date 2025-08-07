@@ -103,6 +103,10 @@ wasm-module: $(OBJS) $(DEFLATE64_OBJS)
 	@$(CC) $(CFLAGS) $(WASM_FLAGS) \
 		-s EXPORTED_FUNCTIONS='["_malloc","_free","_deflate","_inflate","_deflateInit2_","_inflateInit2_","_deflateEnd","_inflateEnd","_inflateBack9Init_","_inflateBack9","_inflateBack9End","_crc32"]' \
 		$(OBJS) $(DEFLATE64_OBJS) -o $(WASM_MODULE_JS) 2>/dev/null
+	@echo "Minifying with Terser..."
+	@npx terser $(WASM_MODULE_JS) -o $(WASM_MODULE_JS).tmp --compress --mangle
+	@sed 's/\`[^\`]*\`/""/g' $(WASM_MODULE_JS).tmp > $(WASM_MODULE_JS)
+	@rm -f $(WASM_MODULE_JS).tmp
 	@echo "✓ Built WebAssembly module"
 
 # Clean build artifacts (including those in build directory)
