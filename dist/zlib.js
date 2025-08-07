@@ -89,14 +89,12 @@ class ZlibCompressor {
     zlibCompressor.outputPtr = null;
     zlibCompressor.inputSize = DEFAULT_INPUT_SIZE;
     zlibCompressor.outputSize = DEFAULT_OUTPUT_SIZE;
-    zlibCompressor.initialized = false;
     const isRawFormat = format === FORMAT_DEFLATE_RAW;
     zlibCompressor.computeCRC32 = isRawFormat && computeCRC32;
     zlibCompressor.crc32 = 0;
   }
   initialize() {
     const zlibCompressor = this;
-    if (zlibCompressor.initialized) return;
     zlibCompressor.streamPtr = zlibModule[FUNC_MALLOC](STREAM_STRUCT_SIZE);
     zlibCompressor.inputPtr = zlibModule[FUNC_MALLOC](zlibCompressor.inputSize);
     zlibCompressor.outputPtr = zlibModule[FUNC_MALLOC](zlibCompressor.outputSize);
@@ -114,13 +112,9 @@ class ZlibCompressor {
     if (result !== 0) {
       throw new Error(`${MSG_COMPRESSION_INIT_FAILED}: ${result}`);
     }
-    zlibCompressor.initialized = true;
   }
-  async compress(data, finish = false, flushMode = FLUSH_MODE_AUTO) {
+  compress(data, finish = false, flushMode = FLUSH_MODE_AUTO) {
     const zlibCompressor = this;
-    if (!zlibCompressor.initialized) {
-      await zlibCompressor.initialize();
-    }
     if (data.length === 0 && !finish) {
       return new Uint8Array(0);
     }
@@ -131,7 +125,7 @@ class ZlibCompressor {
         const chunkSize = Math.min(zlibCompressor.inputSize, data.length - offset);
         const chunk = data.slice(offset, offset + chunkSize);
         const isLastChunk = offset + chunkSize >= data.length;
-        const chunkResult = await zlibCompressor.compressSingleChunk(chunk, finish && isLastChunk, flushMode);
+        const chunkResult = zlibCompressor.compressSingleChunk(chunk, finish && isLastChunk, flushMode);
         if (chunkResult.length > 0) {
           results.push(chunkResult);
         }
@@ -200,7 +194,6 @@ class ZlibCompressor {
       zlibCompressor.inputPtr = null;
       zlibCompressor.outputPtr = null;
     }
-    zlibCompressor.initialized = false;
   }
 }
 class ZlibDecompressor {
@@ -213,7 +206,6 @@ class ZlibDecompressor {
     zlibDecompressor.windowPtr = null;
     zlibDecompressor.inputSize = DEFAULT_INPUT_SIZE;
     zlibDecompressor.outputSize = DEFAULT_OUTPUT_SIZE;
-    zlibDecompressor.initialized = false;
     zlibDecompressor.isDeflate64 = format === FORMAT_DEFLATE64 || format === FORMAT_DEFLATE64_RAW;
     const isRawFormat = format === FORMAT_DEFLATE_RAW || format === FORMAT_DEFLATE64_RAW;
     zlibDecompressor.computeCRC32 = isRawFormat && computeCRC32;
@@ -222,7 +214,6 @@ class ZlibDecompressor {
   }
   initialize() {
     const zlibDecompressor = this;
-    if (zlibDecompressor.initialized) return;
     zlibDecompressor.streamPtr = zlibModule[FUNC_MALLOC](STREAM_STRUCT_SIZE);
     zlibDecompressor.inputPtr = zlibModule[FUNC_MALLOC](zlibDecompressor.inputSize);
     zlibDecompressor.outputPtr = zlibModule[FUNC_MALLOC](zlibDecompressor.outputSize);
@@ -247,13 +238,9 @@ class ZlibDecompressor {
     if (result !== 0) {
       throw new Error(`${MSG_DECOMPRESSION_INIT_FAILED}: ${result}`);
     }
-    zlibDecompressor.initialized = true;
   }
-  async decompress(data, finish = false, flushMode = FLUSH_MODE_AUTO) {
+  decompress(data, finish = false, flushMode = FLUSH_MODE_AUTO) {
     const zlibDecompressor = this;
-    if (!zlibDecompressor.initialized) {
-      await zlibDecompressor.initialize();
-    }
     if (data.length === 0 && !finish) {
       return new Uint8Array(0);
     }
@@ -407,61 +394,47 @@ class ZlibDecompressor {
       zlibDecompressor.inputPtr = null;
       zlibDecompressor.outputPtr = null;
     }
-    zlibDecompressor.initialized = false;
   }
 }
 class BaseStreamPolyfill {
   constructor(format, processorClass, methodName, processorArgs = []) {
-    const baseProcessor = this;
-    baseProcessor.format = format;
-    baseProcessor.createTransformStream(processorClass, methodName, processorArgs);
+    const baseStream = this;
+    baseStream.format = format;
+    baseStream.processor = null;
+    baseStream._createTransformStream(processorClass, methodName, processorArgs);
   }
-  createTransformStream(ProcessorClass, methodName, processorArgs) {
-    const baseProcessor = this;
-    let processor;
+  _createTransformStream(ProcessorClass, methodName, processorArgs) {
+    const baseStream = this;
     const transformStream = new TransformStream({
       start: async () => {
-        processor = new ProcessorClass(...processorArgs);
-        baseProcessor._processor = processor;
-        await processor.initialize();
+        baseStream.processor = new ProcessorClass(...processorArgs);
+        await baseStream.processor.initialize();
       },
-      transform: async (chunk, controller) => {
+      transform: (chunk, controller) => {
         const data = convertChunkToUint8Array(chunk);
-        const result = await processor[methodName](data, false);
+        const result = baseStream.processor[methodName](data, false);
         if (result.length > 0) {
           controller.enqueue(result);
         }
       },
       flush: async (controller) => {
         try {
-          const finalData = await processor.finish();
+          const finalData = await baseStream.processor.finish();
           if (finalData.length > 0) {
             controller.enqueue(finalData);
           }
-          processor.cleanup();
+          baseStream.processor.cleanup();
         } catch (error) {
           try {
-            processor.cleanup();
+            baseStream.processor.cleanup();
           } catch (_) {
           }
           controller.error(error);
         }
       }
     });
-    baseProcessor._readable = transformStream.readable;
-    baseProcessor._writable = transformStream.writable;
-  }
-  get readable() {
-    return this._readable;
-  }
-  set readable(value) {
-    this._readable = value;
-  }
-  get writable() {
-    return this._writable;
-  }
-  set writable(value) {
-    this._writable = value;
+    baseStream.readable = transformStream.readable;
+    baseStream.writable = transformStream.writable;
   }
 }
 class CompressionStream extends BaseStreamPolyfill {
@@ -471,7 +444,7 @@ class CompressionStream extends BaseStreamPolyfill {
     super(format, ZlibCompressor, METHOD_COMPRESS, [level, format, computeCRC32]);
   }
   get crc32() {
-    return this._processor ? this._processor.crc32 : 0;
+    return this.processor ? this.processor.crc32 : 0;
   }
 }
 class DecompressionStream extends BaseStreamPolyfill {
@@ -480,7 +453,7 @@ class DecompressionStream extends BaseStreamPolyfill {
     super(format, ZlibDecompressor, METHOD_DECOMPRESS, [format, computeCRC32, options.expectedCRC32]);
   }
   get crc32() {
-    return this._processor ? this._processor.crc32 : 0;
+    return this.processor ? this.processor.crc32 : 0;
   }
 }
 function getWindowBits(format) {

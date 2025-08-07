@@ -13,6 +13,10 @@ RANLIB=emranlib
 # Optimization and debug flags
 # Compilation flags (optimized for size)
 CFLAGS = -Oz -I. -I./contrib/infback9 -DWITH_GZFILEOP -flto -fno-exceptions -fno-rtti -DNDEBUG -ffast-math -fno-stack-protector
+# Size optimization flags for zlib:
+# CFLAGS += -DNO_GZCOMPRESS        # Remove gzip file I/O functions (safe for web streams)
+# CFLAGS += -DZ_SOLO               # Remove file I/O and utilities (INCOMPATIBLE with deflate64)
+CFLAGS += -DZLIB_CONST           # Use const for some parameters (slight size reduction)
 # Alternative size optimizations:
 # CFLAGS = -Os -I. -I./contrib/infback9 -DWITH_GZFILEOP -flto  # Less aggressive size optimization
 # For debugging, use:
@@ -40,9 +44,11 @@ WASM_FLAGS=-s WASM=1 \
            -s DYNAMIC_EXECUTION=0 \
            -s EVAL_CTORS=1 \
            -s AGGRESSIVE_VARIABLE_ELIMINATION=1 \
+           -s ELIMINATE_DUPLICATE_FUNCTIONS=1 \
            --closure=1 \
            --closure-args="--compilation_level=ADVANCED_OPTIMIZATIONS" \
-           --quiet=1
+           --quiet=1 \
+           --strip-debug
 
 # Source files (excluded gzip-related files for WebAssembly compatibility)
 ZLIB_SRCS = adler32.c \
