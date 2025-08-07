@@ -106,6 +106,46 @@ const FLUSH_MODES = {
 
 let zlibModule;
 
+class BufferPool {
+	constructor() {
+		const bufferPool = this;
+		bufferPool.pools = new Map();
+		bufferPool.maxPoolSize = 8;
+	}
+
+	get(size) {
+		const bufferPool = this;
+		const poolSize = Math.pow(2, Math.ceil(Math.log2(Math.max(size, 64))));
+		if (!bufferPool.pools.has(poolSize)) {
+			bufferPool.pools.set(poolSize, []);
+		}
+		const pool = bufferPool.pools.get(poolSize);
+		if (pool.length > 0) {
+			return pool.pop();
+		}
+		return new Uint8Array(poolSize);
+	}
+
+	release(buffer) {
+		const bufferPool = this;
+		const size = buffer.length;
+		if (!bufferPool.pools.has(size)) {
+			bufferPool.pools.set(size, []);
+		}
+		const pool = bufferPool.pools.get(size);
+		if (pool.length < bufferPool.maxPoolSize) {
+			pool.push(buffer);
+		}
+	}
+
+	clear() {
+		const bufferPool = this;
+		bufferPool.pools.clear();
+	}
+}
+
+const bufferPool = new BufferPool();
+
 async function initModule(moduleCode, wasmBinary) {
 	const moduleFunction = new Function([], `${moduleCode};return ZlibModule`);
 	const ZlibModuleFactory = moduleFunction([]);
@@ -168,13 +208,13 @@ class ZlibCompressor {
 				offset += chunkSize;
 			}
 			const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
-			const combined = new Uint8Array(totalLength);
+			const combined = bufferPool.get(totalLength);
 			let combinedOffset = 0;
 			for (const result of results) {
 				combined.set(result, combinedOffset);
 				combinedOffset += result.length;
 			}
-			return combined;
+			return combined.subarray(0, totalLength);
 		}
 		return zlibCompressor.compressSingleChunk(data, finish, flushMode);
 	}
@@ -336,13 +376,13 @@ class ZlibDecompressor {
 			break;
 		}
 		const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
-		const output = new Uint8Array(totalLength);
+		const output = bufferPool.get(totalLength);
 		let offset = 0;
 		for (const chunk of results) {
 			output.set(chunk, offset);
 			offset += chunk.length;
 		}
-		return output;
+		return output.subarray(0, totalLength);
 	}
 
 	decompressDeflate64(data, finish) {
@@ -391,14 +431,14 @@ class ZlibDecompressor {
 			throw new Error(`${msg}: ${result}`);
 		}
 		const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
-		const output = new Uint8Array(totalLength);
+		const output = bufferPool.get(totalLength);
 		let offset = 0;
 		for (const chunk of results) {
 			output.set(chunk, offset);
 			offset += chunk.length;
 		}
 
-		return output;
+		return output.subarray(0, totalLength);
 	}
 
 	finish() {
@@ -508,7 +548,11 @@ class DecompressionStream extends BaseStreamPolyfill {
 	}
 }
 
-export { CompressionStream, DecompressionStream, initModule };
+export { CompressionStream, DecompressionStream, initModule, clearBufferPool };
+
+function clearBufferPool() {
+	bufferPool.clear();
+}
 
 function getWindowBits(format) {
 	switch (format) {
@@ -528,7 +572,12 @@ function copyToWasmMemory(zlibModule, sourceData, targetPtr) {
 }
 
 function copyFromWasmMemory(zlibModule, sourcePtr, length) {
-	return zlibModule.HEAPU8.slice(sourcePtr, sourcePtr + length);
+	if (length === 0) {
+		return new Uint8Array(0);
+	}
+	const buffer = bufferPool.get(length);
+	buffer.set(zlibModule.HEAPU8.subarray(sourcePtr, sourcePtr + length));
+	return buffer.subarray(0, length);
 }
 
 function initStream(zlibModule, streamPtr) {
