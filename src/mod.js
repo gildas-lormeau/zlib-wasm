@@ -123,7 +123,6 @@ class ZlibCompressor {
 		zlibCompressor.outputPtr = null;
 		zlibCompressor.inputSize = DEFAULT_INPUT_SIZE;
 		zlibCompressor.outputSize = DEFAULT_OUTPUT_SIZE;
-		zlibCompressor.initialized = false;
 		const isRawFormat = format === FORMAT_DEFLATE_RAW;
 		zlibCompressor.computeCRC32 = isRawFormat && computeCRC32;
 		zlibCompressor.crc32 = 0;
@@ -131,7 +130,6 @@ class ZlibCompressor {
 
 	initialize() {
 		const zlibCompressor = this;
-		if (zlibCompressor.initialized) return;
 		zlibCompressor.streamPtr = zlibModule[FUNC_MALLOC](STREAM_STRUCT_SIZE);
 		zlibCompressor.inputPtr = zlibModule[FUNC_MALLOC](zlibCompressor.inputSize);
 		zlibCompressor.outputPtr = zlibModule[FUNC_MALLOC](zlibCompressor.outputSize);
@@ -149,14 +147,10 @@ class ZlibCompressor {
 		if (result !== 0) {
 			throw new Error(`${MSG_COMPRESSION_INIT_FAILED}: ${result}`);
 		}
-		zlibCompressor.initialized = true;
 	}
 
-	async compress(data, finish = false, flushMode = FLUSH_MODE_AUTO) {
+	compress(data, finish = false, flushMode = FLUSH_MODE_AUTO) {
 		const zlibCompressor = this;
-		if (!zlibCompressor.initialized) {
-			await zlibCompressor.initialize();
-		}
 		if (data.length === 0 && !finish) {
 			return new Uint8Array(0);
 		}
@@ -167,7 +161,7 @@ class ZlibCompressor {
 				const chunkSize = Math.min(zlibCompressor.inputSize, data.length - offset);
 				const chunk = data.slice(offset, offset + chunkSize);
 				const isLastChunk = offset + chunkSize >= data.length;
-				const chunkResult = await zlibCompressor.compressSingleChunk(chunk, finish && isLastChunk, flushMode);
+				const chunkResult = zlibCompressor.compressSingleChunk(chunk, finish && isLastChunk, flushMode);
 				if (chunkResult.length > 0) {
 					results.push(chunkResult);
 				}
@@ -240,7 +234,6 @@ class ZlibCompressor {
 			zlibCompressor.inputPtr = null;
 			zlibCompressor.outputPtr = null;
 		}
-		zlibCompressor.initialized = false;
 	}
 }
 
@@ -254,7 +247,6 @@ class ZlibDecompressor {
 		zlibDecompressor.windowPtr = null;
 		zlibDecompressor.inputSize = DEFAULT_INPUT_SIZE;
 		zlibDecompressor.outputSize = DEFAULT_OUTPUT_SIZE;
-		zlibDecompressor.initialized = false;
 		zlibDecompressor.isDeflate64 = format === FORMAT_DEFLATE64 || format === FORMAT_DEFLATE64_RAW;
 		const isRawFormat = format === FORMAT_DEFLATE_RAW || format === FORMAT_DEFLATE64_RAW;
 		zlibDecompressor.computeCRC32 = isRawFormat && computeCRC32;
@@ -264,7 +256,6 @@ class ZlibDecompressor {
 
 	initialize() {
 		const zlibDecompressor = this;
-		if (zlibDecompressor.initialized) return;
 		zlibDecompressor.streamPtr = zlibModule[FUNC_MALLOC](STREAM_STRUCT_SIZE);
 		zlibDecompressor.inputPtr = zlibModule[FUNC_MALLOC](zlibDecompressor.inputSize);
 		zlibDecompressor.outputPtr = zlibModule[FUNC_MALLOC](zlibDecompressor.outputSize);
@@ -289,14 +280,10 @@ class ZlibDecompressor {
 		if (result !== 0) {
 			throw new Error(`${MSG_DECOMPRESSION_INIT_FAILED}: ${result}`);
 		}
-		zlibDecompressor.initialized = true;
 	}
 
-	async decompress(data, finish = false, flushMode = FLUSH_MODE_AUTO) {
+	decompress(data, finish = false, flushMode = FLUSH_MODE_AUTO) {
 		const zlibDecompressor = this;
-		if (!zlibDecompressor.initialized) {
-			await zlibDecompressor.initialize();
-		}
 		if (data.length === 0 && !finish) {
 			return new Uint8Array(0);
 		}
@@ -454,7 +441,6 @@ class ZlibDecompressor {
 			zlibDecompressor.inputPtr = null;
 			zlibDecompressor.outputPtr = null;
 		}
-		zlibDecompressor.initialized = false;
 	}
 }
 
@@ -473,9 +459,9 @@ class BaseStreamPolyfill {
 				baseStream.processor = new ProcessorClass(...processorArgs);
 				await baseStream.processor.initialize();
 			},
-			transform: async (chunk, controller) => {
+			transform: (chunk, controller) => {
 				const data = convertChunkToUint8Array(chunk);
-				const result = await baseStream.processor[methodName](data, false);
+				const result = baseStream.processor[methodName](data, false);
 				if (result.length > 0) {
 					controller.enqueue(result);
 				}
