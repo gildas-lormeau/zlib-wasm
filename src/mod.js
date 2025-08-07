@@ -460,37 +460,36 @@ class ZlibDecompressor {
 
 class BaseStreamPolyfill {
 	constructor(format, processorClass, methodName, processorArgs = []) {
-		const baseProcessor = this;
-		baseProcessor.format = format;
-		baseProcessor.createTransformStream(processorClass, methodName, processorArgs);
+		const baseStream = this;
+		baseStream.format = format;
+		baseStream.processor = null;
+		baseStream._createTransformStream(processorClass, methodName, processorArgs);
 	}
 
-	createTransformStream(ProcessorClass, methodName, processorArgs) {
-		const baseProcessor = this;
-		let processor;
+	_createTransformStream(ProcessorClass, methodName, processorArgs) {
+		const baseStream = this;
 		const transformStream = new TransformStream({
 			start: async () => {
-				processor = new ProcessorClass(...processorArgs);
-				baseProcessor._processor = processor;
-				await processor.initialize();
+				baseStream.processor = new ProcessorClass(...processorArgs);
+				await baseStream.processor.initialize();
 			},
 			transform: async (chunk, controller) => {
 				const data = convertChunkToUint8Array(chunk);
-				const result = await processor[methodName](data, false);
+				const result = await baseStream.processor[methodName](data, false);
 				if (result.length > 0) {
 					controller.enqueue(result);
 				}
 			},
 			flush: async (controller) => {
 				try {
-					const finalData = await processor.finish();
+					const finalData = await baseStream.processor.finish();
 					if (finalData.length > 0) {
 						controller.enqueue(finalData);
 					}
-					processor.cleanup();
+					baseStream.processor.cleanup();
 				} catch (error) {
 					try {
-						processor.cleanup();
+						baseStream.processor.cleanup();
 					} catch (_) {
 						// ignored
 					}
@@ -498,21 +497,8 @@ class BaseStreamPolyfill {
 				}
 			},
 		});
-		baseProcessor._readable = transformStream.readable;
-		baseProcessor._writable = transformStream.writable;
-	}
-
-	get readable() {
-		return this._readable;
-	}
-	set readable(value) {
-		this._readable = value;
-	}
-	get writable() {
-		return this._writable;
-	}
-	set writable(value) {
-		this._writable = value;
+		baseStream.readable = transformStream.readable;
+		baseStream.writable = transformStream.writable;
 	}
 }
 
@@ -524,7 +510,7 @@ class CompressionStream extends BaseStreamPolyfill {
 	}
 
 	get crc32() {
-		return this._processor ? this._processor.crc32 : 0;
+		return this.processor ? this.processor.crc32 : 0;
 	}
 }
 
@@ -535,7 +521,7 @@ class DecompressionStream extends BaseStreamPolyfill {
 	}
 
 	get crc32() {
-		return this._processor ? this._processor.crc32 : 0;
+		return this.processor ? this.processor.crc32 : 0;
 	}
 }
 
