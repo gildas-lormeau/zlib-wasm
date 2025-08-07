@@ -73,6 +73,41 @@ const FLUSH_MODES = {
   auto: Z_NO_FLUSH
 };
 let zlibModule;
+class BufferPool {
+  constructor() {
+    const bufferPool2 = this;
+    bufferPool2.pools = /* @__PURE__ */ new Map();
+    bufferPool2.maxPoolSize = 8;
+  }
+  get(size) {
+    const bufferPool2 = this;
+    const poolSize = Math.pow(2, Math.ceil(Math.log2(Math.max(size, 64))));
+    if (!bufferPool2.pools.has(poolSize)) {
+      bufferPool2.pools.set(poolSize, []);
+    }
+    const pool = bufferPool2.pools.get(poolSize);
+    if (pool.length > 0) {
+      return pool.pop();
+    }
+    return new Uint8Array(poolSize);
+  }
+  release(buffer) {
+    const bufferPool2 = this;
+    const size = buffer.length;
+    if (!bufferPool2.pools.has(size)) {
+      bufferPool2.pools.set(size, []);
+    }
+    const pool = bufferPool2.pools.get(size);
+    if (pool.length < bufferPool2.maxPoolSize) {
+      pool.push(buffer);
+    }
+  }
+  clear() {
+    const bufferPool2 = this;
+    bufferPool2.pools.clear();
+  }
+}
+const bufferPool = new BufferPool();
 async function initModule(moduleCode2, wasmBinary2) {
   const moduleFunction = new Function([], `${moduleCode2};return ZlibModule`);
   const ZlibModuleFactory = moduleFunction([]);
@@ -132,13 +167,13 @@ class ZlibCompressor {
         offset += chunkSize;
       }
       const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
-      const combined = new Uint8Array(totalLength);
+      const combined = bufferPool.get(totalLength);
       let combinedOffset = 0;
       for (const result of results) {
         combined.set(result, combinedOffset);
         combinedOffset += result.length;
       }
-      return combined;
+      return combined.subarray(0, totalLength);
     }
     return zlibCompressor.compressSingleChunk(data, finish, flushMode);
   }
@@ -293,13 +328,13 @@ class ZlibDecompressor {
       break;
     }
     const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
-    const output = new Uint8Array(totalLength);
+    const output = bufferPool.get(totalLength);
     let offset = 0;
     for (const chunk of results) {
       output.set(chunk, offset);
       offset += chunk.length;
     }
-    return output;
+    return output.subarray(0, totalLength);
   }
   decompressDeflate64(data, finish) {
     const zlibDecompressor = this;
@@ -307,16 +342,13 @@ class ZlibDecompressor {
       return new Uint8Array(0);
     }
     copyToWasmMemory(zlibModule, data, zlibDecompressor.inputPtr);
-    const inputOffset = 0;
     const results = [];
     const inFunc = zlibModule.addFunction((_, bufPtr) => {
-      if (inputOffset >= data.length) {
+      if (data.length === 0) {
         return 0;
       }
-      const remainingBytes = data.length - inputOffset;
-      const currentInputPtr = zlibDecompressor.inputPtr + inputOffset;
-      zlibModule.HEAPU32[bufPtr >>> 2] = currentInputPtr;
-      return remainingBytes;
+      zlibModule.HEAPU32[bufPtr >>> 2] = zlibDecompressor.inputPtr;
+      return data.length;
     }, SIGNATURE_III);
     const outFunc = zlibModule.addFunction((_, buf, len) => {
       if (len > 0) {
@@ -350,13 +382,13 @@ class ZlibDecompressor {
       throw new Error(`${msg}: ${result}`);
     }
     const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
-    const output = new Uint8Array(totalLength);
+    const output = bufferPool.get(totalLength);
     let offset = 0;
     for (const chunk of results) {
       output.set(chunk, offset);
       offset += chunk.length;
     }
-    return output;
+    return output.subarray(0, totalLength);
   }
   finish() {
     const zlibDecompressor = this;
@@ -472,7 +504,12 @@ function copyToWasmMemory(zlibModule2, sourceData, targetPtr) {
   zlibModule2.HEAPU8.set(sourceData, targetPtr);
 }
 function copyFromWasmMemory(zlibModule2, sourcePtr, length) {
-  return zlibModule2.HEAPU8.slice(sourcePtr, sourcePtr + length);
+  if (length === 0) {
+    return new Uint8Array(0);
+  }
+  const buffer = bufferPool.get(length);
+  buffer.set(zlibModule2.HEAPU8.subarray(sourcePtr, sourcePtr + length));
+  return buffer.subarray(0, length);
 }
 function initStream(zlibModule2, streamPtr) {
   zlibModule2.HEAPU8.fill(0, streamPtr, streamPtr + STREAM_STRUCT_SIZE);
