@@ -119,7 +119,7 @@ console.log(`Computed CRC32: 0x${computedCRC32.toString(16).padStart(8, '0').toU
 | `computeCRC32`  | boolean | Compression, Decompression | `deflate-raw` (compression), `deflate-raw`/`deflate64-raw` (decompression) | Compute CRC32 checksum during compression or decompression |
 | `expectedCRC32` | number  | Decompression | `deflate-raw`, `deflate64-raw` | Verify data integrity against expected CRC32  |
 
-**Note**: CRC32 computation is only available for `deflate-raw` format during compression. CRC32 verification works for both `deflate-raw` and `deflate64-raw` formats during decompression. Other formats (`deflate`, `gzip`) ignore CRC32 options since they have their own integrity mechanisms.
+**Note**: CRC32 computation is only available for `deflate-raw` format during compression. CRC32 verification works for both `deflate-raw` and `deflate64-raw` formats during decompression. Other formats (`deflate`, `gzip`, `deflate64`) ignore CRC32 options since they have their own integrity mechanisms.
 
 ## Supported Formats
 
