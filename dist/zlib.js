@@ -81,15 +81,14 @@ class BufferPool {
   }
   get(size) {
     const bufferPool2 = this;
-    const poolSize = Math.pow(2, Math.ceil(Math.log2(Math.max(size, 64))));
-    if (!bufferPool2.pools.has(poolSize)) {
-      bufferPool2.pools.set(poolSize, []);
+    if (!bufferPool2.pools.has(size)) {
+      bufferPool2.pools.set(size, []);
     }
-    const pool = bufferPool2.pools.get(poolSize);
+    const pool = bufferPool2.pools.get(size);
     if (pool.length > 0) {
       return pool.pop();
     }
-    return new Uint8Array(poolSize);
+    return new Uint8Array(size);
   }
   release(buffer) {
     const bufferPool2 = this;
