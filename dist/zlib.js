@@ -204,7 +204,7 @@ class ZlibCompressor {
   }
 }
 class ZlibDecompressor {
-  constructor(format = FORMAT_DEFLATE, verifyCRC32 = false, expectedCRC32) {
+  constructor(format = FORMAT_DEFLATE, computeCRC32 = false, expectedCRC32) {
     const zlibDecompressor = this;
     zlibDecompressor.format = format;
     zlibDecompressor.streamPtr = null;
@@ -216,7 +216,7 @@ class ZlibDecompressor {
     zlibDecompressor.initialized = false;
     zlibDecompressor.isDeflate64 = format === FORMAT_DEFLATE64 || format === FORMAT_DEFLATE64_RAW;
     const isRawFormat = format === FORMAT_DEFLATE_RAW || format === FORMAT_DEFLATE64_RAW;
-    zlibDecompressor.verifyCRC32 = isRawFormat && verifyCRC32;
+    zlibDecompressor.computeCRC32 = isRawFormat && computeCRC32;
     zlibDecompressor.expectedCRC32 = expectedCRC32;
     zlibDecompressor.crc32 = 0;
   }
@@ -287,7 +287,7 @@ class ZlibDecompressor {
       const outputLength = zlibDecompressor.outputSize - availOut;
       if (outputLength > 0) {
         const outputChunk = copyFromWasmMemory(zlibModule, zlibDecompressor.outputPtr, outputLength);
-        if (zlibDecompressor.verifyCRC32) {
+        if (zlibDecompressor.computeCRC32) {
           zlibDecompressor.crc32 = zlibModule[FUNC_CRC32](zlibDecompressor.crc32, zlibDecompressor.outputPtr, outputLength);
         }
         results.push(outputChunk);
@@ -333,7 +333,7 @@ class ZlibDecompressor {
     }, SIGNATURE_III);
     const outFunc = zlibModule.addFunction((_, buf, len) => {
       if (len > 0) {
-        if (zlibDecompressor.verifyCRC32) {
+        if (zlibDecompressor.computeCRC32) {
           zlibDecompressor.crc32 = zlibModule[FUNC_CRC32](zlibDecompressor.crc32, buf, len);
         }
         const outputChunk = copyFromWasmMemory(zlibModule, buf, len);
@@ -375,10 +375,8 @@ class ZlibDecompressor {
     const zlibDecompressor = this;
     const finalData = await zlibDecompressor.decompress(new Uint8Array(0), true);
     zlibDecompressor.cleanup();
-    if (zlibDecompressor.verifyCRC32) {
-      if (zlibDecompressor.crc32 !== zlibDecompressor.expectedCRC32) {
-        throw new Error(`${MSG_CRC32_MISMATCH} ${zlibDecompressor.expectedCRC32.toString(16).toUpperCase().padStart(HEX_PAD_LENGTH, HEX_PAD_CHAR)}, got ${zlibDecompressor.crc32.toString(16).toUpperCase().padStart(HEX_PAD_LENGTH, HEX_PAD_CHAR)}`);
-      }
+    if (zlibDecompressor.expectedCRC32 !== void 0 && zlibDecompressor.computeCRC32 && zlibDecompressor.crc32 !== zlibDecompressor.expectedCRC32) {
+      throw new Error(`${MSG_CRC32_MISMATCH} ${zlibDecompressor.expectedCRC32.toString(16).toUpperCase().padStart(HEX_PAD_LENGTH, HEX_PAD_CHAR)}, got ${zlibDecompressor.crc32.toString(16).toUpperCase().padStart(HEX_PAD_LENGTH, HEX_PAD_CHAR)}`);
     }
     return finalData;
   }
@@ -478,8 +476,8 @@ class CompressionStream extends BaseStreamPolyfill {
 }
 class DecompressionStream extends BaseStreamPolyfill {
   constructor(format, options = {}) {
-    const verifyCRC32 = options.expectedCRC32 !== void 0;
-    super(format, ZlibDecompressor, METHOD_DECOMPRESS, [format, verifyCRC32, options.expectedCRC32]);
+    const computeCRC32 = options.expectedCRC32 !== void 0 || options.computeCRC32 !== void 0 && options.computeCRC32 !== false;
+    super(format, ZlibDecompressor, METHOD_DECOMPRESS, [format, computeCRC32, options.expectedCRC32]);
   }
   get crc32() {
     return this._processor ? this._processor.crc32 : 0;

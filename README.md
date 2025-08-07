@@ -82,7 +82,7 @@ console.log(`CRC32: 0x${crc32Value.toString(16).padStart(8, '0').toUpperCase()}`
 #### CRC32 Verification
 
 ```javascript
-// Verify CRC32 during decompression (deflate-raw or deflate64-raw)
+// Method 1: Verify CRC32 with expected value (deflate-raw or deflate64-raw)
 const expectedCRC32 = 0x12345678; // Known CRC32 value
 const decompressor = new DecompressionStream('deflate-raw', { expectedCRC32 });
 // or
@@ -100,14 +100,25 @@ try {
     console.error('Data corruption detected:', error.message);
   }
 }
+
+// Method 2: Enable CRC32 computation without validation
+const decompressor2 = new DecompressionStream('deflate-raw', { computeCRC32: true });
+const decompressed2 = await new Response(
+  compressedData.pipeThrough(decompressor2)
+).arrayBuffer();
+
+// Access the computed CRC32 value after decompression
+const computedCRC32 = decompressor2.crc32;
+console.log(`Computed CRC32: 0x${computedCRC32.toString(16).padStart(8, '0').toUpperCase()}`);
 ```
 
 #### CRC32 Options
 
 | Option          | Type    | Format                         | Description                                                |
 | --------------- | ------- | ------------------------------ | ---------------------------------------------------------- |
-| `computeCRC32`  | boolean | `deflate-raw` only             | Enable CRC32 computation during compression                |
+| `computeCRC32`  | boolean | `deflate-raw` (compression)    | Enable CRC32 computation during compression                |
 | `expectedCRC32` | number  | `deflate-raw`, `deflate64-raw` | Expected CRC32 value for verification during decompression |
+| `computeCRC32`  | boolean | `deflate-raw`, `deflate64-raw` (decompression) | Enable CRC32 computation during decompression without validation |
 
 **Note**: CRC32 computation is only available for `deflate-raw` format during compression. CRC32 verification works for both `deflate-raw` and `deflate64-raw` formats during decompression. Other formats (`deflate`, `gzip`, `deflate64`) ignore CRC32 options since they have their own integrity mechanisms.
 
@@ -150,6 +161,7 @@ new DecompressionStream(format, options?)
 - `format`: `'deflate'` | `'deflate-raw'` | `'gzip'` | `'deflate64'` | `'deflate64-raw'`
 - `options` (optional):
   - `expectedCRC32`: number (only for `deflate-raw` and `deflate64-raw`, throws error if CRC32 doesn't match)
+  - `computeCRC32`: boolean (only for `deflate-raw` and `deflate64-raw`, enables CRC32 computation without validation)
 
 **Properties:**
 - `crc32`: number (computed CRC32 value, only for `deflate-raw` and `deflate64-raw`)

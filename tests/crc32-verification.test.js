@@ -154,6 +154,41 @@ async function runCRC32VerificationTests() {
 		TestUtils.assertEqual(decompressionStream.crc32, 0);
 	});
 
+	await TestUtils.test("CRC32 verification - computeCRC32 option enables computation", async () => {
+		const testData = TestUtils.stringToUint8Array("Hello, World! Testing computeCRC32 option.");
+
+		// First, compress the data
+		const { CompressionStream, DecompressionStream } = await TestUtils.importCompressionStreams();
+		const compressionStream = new CompressionStream("deflate-raw", { computeCRC32: true });
+
+		const compressedData = await TestUtils.streamToUint8Array(
+			new ReadableStream({
+				start(controller) {
+					controller.enqueue(testData);
+					controller.close();
+				},
+			}).pipeThrough(compressionStream),
+		);
+
+		// Use computeCRC32 option (without expectedCRC32)
+		const decompressionStream = new DecompressionStream("deflate-raw", { computeCRC32: true });
+		const decompressedData = await TestUtils.streamToUint8Array(
+			new ReadableStream({
+				start(controller) {
+					controller.enqueue(compressedData);
+					controller.close();
+				},
+			}).pipeThrough(decompressionStream),
+		);
+
+		// Verify the data matches
+		TestUtils.assertEqual(TestUtils.uint8ArrayToString(decompressedData), TestUtils.uint8ArrayToString(testData));
+
+		// Verify CRC32 was computed during decompression (should match compression CRC32)
+		TestUtils.assertEqual(decompressionStream.crc32, compressionStream.crc32);
+		TestUtils.assert(decompressionStream.crc32 !== 0, "CRC32 should be computed when computeCRC32 is true");
+	});
+
 	await TestUtils.test("CRC32 verification - deflate64-raw format support", async () => {
 		// Test that deflate64-raw decompressor supports CRC32 verification
 		const { DecompressionStream } = await TestUtils.importCompressionStreams();
