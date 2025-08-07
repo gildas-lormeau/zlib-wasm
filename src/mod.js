@@ -216,9 +216,9 @@ class ZlibCompressor {
 		return copyFromWasmMemory(zlibModule, zlibCompressor.outputPtr, outputLength);
 	}
 
-	async finish() {
+	finish() {
 		const zlibCompressor = this;
-		const finalData = await zlibCompressor.compress(new Uint8Array(0), true);
+		const finalData = zlibCompressor.compress(new Uint8Array(0), true);
 		zlibCompressor.cleanup();
 		return finalData;
 	}
@@ -351,7 +351,7 @@ class ZlibDecompressor {
 			return new Uint8Array(0);
 		}
 		copyToWasmMemory(zlibModule, data, zlibDecompressor.inputPtr);
-		const inputOffset = 0;
+		let inputOffset = 0;
 		const results = [];
 		const inFunc = zlibModule.addFunction((_, bufPtr) => {
 			if (inputOffset >= data.length) {
@@ -360,7 +360,9 @@ class ZlibDecompressor {
 			const remainingBytes = data.length - inputOffset;
 			const currentInputPtr = zlibDecompressor.inputPtr + inputOffset;
 			zlibModule.HEAPU32[bufPtr >>> 2] = currentInputPtr;
-			return remainingBytes;
+			const bytesToRead = remainingBytes;
+			inputOffset += bytesToRead;
+			return bytesToRead;
 		}, SIGNATURE_III);
 		const outFunc = zlibModule.addFunction((_, buf, len) => {
 			if (len > 0) {
@@ -404,9 +406,9 @@ class ZlibDecompressor {
 		return output;
 	}
 
-	async finish() {
+	finish() {
 		const zlibDecompressor = this;
-		const finalData = await zlibDecompressor.decompress(new Uint8Array(0), true);
+		const finalData = zlibDecompressor.decompress(new Uint8Array(0), true);
 		zlibDecompressor.cleanup();
 		if (zlibDecompressor.expectedCRC32 !== undefined && zlibDecompressor.computeCRC32 && zlibDecompressor.crc32 !== zlibDecompressor.expectedCRC32) {
 			throw new Error(`${MSG_CRC32_MISMATCH} ${zlibDecompressor.expectedCRC32.toString(16).toUpperCase().padStart(HEX_PAD_LENGTH, HEX_PAD_CHAR)}, got ${zlibDecompressor.crc32.toString(16).toUpperCase().padStart(HEX_PAD_LENGTH, HEX_PAD_CHAR)}`);
@@ -466,9 +468,9 @@ class BaseStreamPolyfill {
 					controller.enqueue(result);
 				}
 			},
-			flush: async (controller) => {
+			flush: (controller) => {
 				try {
-					const finalData = await baseStream.processor.finish();
+					const finalData = baseStream.processor.finish();
 					if (finalData.length > 0) {
 						controller.enqueue(finalData);
 					}
