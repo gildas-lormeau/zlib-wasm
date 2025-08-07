@@ -52,7 +52,7 @@ const balanced = new CompressionStream('gzip', { level: 6 });
 ### Deflate64 Support
 
 ```javascript
-// Decompress Deflate64 data (common in ZIP files)
+// Decompress Deflate64 data
 const deflate64Decompressor = new DecompressionStream('deflate64');
 const result = deflate64Data.pipeThrough(deflate64Decompressor);
 
