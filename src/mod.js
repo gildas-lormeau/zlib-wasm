@@ -19,6 +19,7 @@ const DEFAULT_INPUT_SIZE = 32768;
 const DEFAULT_OUTPUT_SIZE = 32768;
 const STREAM_STRUCT_SIZE = 56;
 const DEFLATE64_WINDOW_SIZE = 65536;
+const DEFLATE64_OUTPUT_CHUNK_SIZE = 65536;
 
 // Format strings
 const FORMAT_DEFLATE = "deflate";
@@ -383,99 +384,86 @@ class ZlibDecompressor {
 		if (zlibDecompressor.deflate64Complete) {
 			return new Uint8Array(0);
 		}
-		
-		// Initialize streaming state if not already done
-		if (zlibDecompressor.deflate64InputBuffer) {
-			// Append new data to existing buffer
-			if (data.length > 0) {
-				const newBuffer = new Uint8Array(zlibDecompressor.deflate64InputBuffer.length + data.length);
-				newBuffer.set(zlibDecompressor.deflate64InputBuffer);
-				newBuffer.set(data, zlibDecompressor.deflate64InputBuffer.length);
-				zlibDecompressor.deflate64InputBuffer = newBuffer;
-			}
-		} else {
-			// First call - set up for streaming
-			zlibDecompressor.deflate64InputBuffer = data.length > 0 ? new Uint8Array(data) : new Uint8Array(0);
-			zlibDecompressor.deflate64StreamStarted = false;
+		if (!zlibDecompressor.deflate64InputBuffer) {
+			zlibDecompressor.deflate64InputBuffer = new Uint8Array(0);
 		}
-		
-		// Only start the single inflateBack9 call when we have enough data or are finishing
-		// Once started, we must let it complete
-		if (!zlibDecompressor.deflate64StreamStarted) {
-			const shouldStart = finish || zlibDecompressor.deflate64InputBuffer.length >= 1024;
-			if (!shouldStart) {
-				return new Uint8Array(0);
-			}
-			zlibDecompressor.deflate64StreamStarted = true;
+		if (data.length > 0) {
+			const newBuffer = new Uint8Array(zlibDecompressor.deflate64InputBuffer.length + data.length);
+			newBuffer.set(zlibDecompressor.deflate64InputBuffer);
+			newBuffer.set(data, zlibDecompressor.deflate64InputBuffer.length);
+			zlibDecompressor.deflate64InputBuffer = newBuffer;
 		}
-		
-		// For subsequent calls after streaming has started, just append data and wait for finish
-		if (zlibDecompressor.deflate64StreamStarted && !finish) {
+		if (!finish) {
 			return new Uint8Array(0);
 		}
-		
-		// Now we have all the data we're going to get, process it all at once
 		const inputData = zlibDecompressor.deflate64InputBuffer;
 		const results = [];
-		
-		// Ensure we have enough space in the input buffer
 		if (inputData.length > zlibDecompressor.inputSize) {
 			zlibModule[FUNC_FREE](zlibDecompressor.inputPtr);
-			zlibDecompressor.inputSize = Math.max(inputData.length, zlibDecompressor.inputSize * 2);
+			zlibDecompressor.inputSize = Math.max(inputData.length, DEFAULT_INPUT_SIZE);
 			zlibDecompressor.inputPtr = zlibModule[FUNC_MALLOC](zlibDecompressor.inputSize);
 		}
-		
 		copyToWasmMemory(zlibModule, inputData, zlibDecompressor.inputPtr);
-		
+		let inputOffset = 0;
 		const inFunc = zlibModule.addFunction((_, bufPtr) => {
-			if (inputData.length === 0) {
-				return 0;
+			if (inputOffset < inputData.length) {
+				const remainingData = inputData.length - inputOffset;
+				zlibModule.HEAPU32[bufPtr >>> 2] = zlibDecompressor.inputPtr + inputOffset;
+				inputOffset = inputData.length;
+				return remainingData;
 			}
-			zlibModule.HEAPU32[bufPtr >>> 2] = zlibDecompressor.inputPtr;
-			return inputData.length;
+			return 0;
 		}, SIGNATURE_III);
-		
 		const outFunc = zlibModule.addFunction((_, buf, len) => {
 			if (len > 0) {
 				if (zlibDecompressor.computeCRC32) {
 					zlibDecompressor.crc32 = zlibModule[FUNC_CRC32](zlibDecompressor.crc32, buf, len);
 				}
-				const outputChunk = copyFromWasmMemory(zlibModule, buf, len);
-				results.push(outputChunk);
+				let offset = 0;
+				while (offset < len) {
+					const chunkSize = Math.min(DEFLATE64_OUTPUT_CHUNK_SIZE, len - offset);
+					const outputChunk = copyFromWasmMemory(zlibModule, buf + offset, chunkSize);
+					results.push(outputChunk);
+					offset += chunkSize;
+				}
 			}
 			return 0;
 		}, SIGNATURE_IIII);
-		
-		const result = zlibModule.ccall(FUNC_INFLATE_BACK9, TYPE_NUMBER, [TYPE_NUMBER, TYPE_NUMBER, TYPE_NUMBER, TYPE_NUMBER, TYPE_NUMBER], [
-			zlibDecompressor.streamPtr,
-			inFunc,
-			0,
-			outFunc,
-			0,
-		]);
-		
-		zlibModule.removeFunction(inFunc);
-		zlibModule.removeFunction(outFunc);
-		
+		let result;
+		try {
+			result = zlibModule.ccall(FUNC_INFLATE_BACK9, TYPE_NUMBER, [TYPE_NUMBER, TYPE_NUMBER, TYPE_NUMBER, TYPE_NUMBER, TYPE_NUMBER], [
+				zlibDecompressor.streamPtr,
+				inFunc,
+				0,
+				outFunc,
+				0,
+			]);
+		} finally {
+			zlibModule.removeFunction(inFunc);
+			zlibModule.removeFunction(outFunc);
+		}
 		if (result === 1) {
 			zlibDecompressor.deflate64Complete = true;
-			zlibDecompressor.deflate64InputBuffer = new Uint8Array(0);
+			zlibDecompressor.deflate64InputBuffer = new Uint8Array(0); // Free memory
 		} else if (result < 0) {
-			const msg = MSG_DEFLATE64_DECOMPRESSION_FAILED;
-			throw new Error(msg + ": " + result);
-		} else if (finish && result !== 1) {
-			const msg = MSG_DEFLATE64_DECOMPRESSION_INCOMPLETE;
-			throw new Error(msg + ": " + result);
+			throw new Error(MSG_DEFLATE64_DECOMPRESSION_FAILED + ": " + result);
+		} else {
+			throw new Error(MSG_DEFLATE64_DECOMPRESSION_INCOMPLETE + ": " + result);
 		}
-		
-		const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
-		const output = bufferPool.get(totalLength);
-		let outputOffset = 0;
-		for (const chunk of results) {
-			output.set(chunk, outputOffset);
-			outputOffset += chunk.length;
+		if (results.length === 0) {
+			return new Uint8Array(0);
+		} else if (results.length === 1) {
+			return results[0];
+		} else {
+			const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
+			const output = bufferPool.get(totalLength);
+			let outputOffset = 0;
+			for (const chunk of results) {
+				output.set(chunk, outputOffset);
+				outputOffset += chunk.length;
+			}
+			return output.subarray(0, totalLength);
 		}
-		return output.subarray(0, totalLength);
 	}
 
 	finish() {
@@ -499,7 +487,6 @@ class ZlibDecompressor {
 				}
 				// Clean up deflate64 streaming state
 				zlibDecompressor.deflate64InputBuffer = null;
-				zlibDecompressor.deflate64StreamStarted = false;
 			} else {
 				zlibModule[FUNC_INFLATE_END](zlibDecompressor.streamPtr);
 			}

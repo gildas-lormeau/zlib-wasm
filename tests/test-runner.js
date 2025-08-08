@@ -13,6 +13,7 @@ const testFiles = [
 	"large-data.test.js",
 	"deflate64.test.js",
 	"deflate64-zip.test.js",
+	"deflate64-large-streaming.test.js",
 	"bundle.test.js",
 	"crc32.test.js",
 	"crc32-verification.test.js",

@@ -180,31 +180,26 @@ async function runDeflate64LargeStreamingTests() {
 		console.log(`   Testing deflate64 internal buffer management`);
 		
 		// Test that our streaming implementation properly manages its internal buffers
-		// by processing data in very small increments
+		// by processing complete deflate64 data in small increments
 		
-		// Load real deflate64 data
+		// Load the smaller deflate64 file from our ZIP
 		const zipResponse = await fetch(new URL("./data/large-deflate64.zip", import.meta.url));
 		const zipData = new Uint8Array(await zipResponse.arrayBuffer());
 		const files = parseZipFile(zipData);
-		const deflate64File = files.find(f => f.compressionMethod === 9);
-		const compressedData = extractFileData(zipData, deflate64File);
 		
-		console.log(`   File size: ${compressedData.length} bytes compressed -> ${deflate64File.uncompressedSize} bytes uncompressed`);
+		// Use the smaller file for buffer management testing
+		const smallerFile = files.find(f => f.filename === "pattern-5mb.bin");
+		TestUtils.assert(smallerFile, "Should find the smaller test file");
 		
-		// For large files, we need to be more reasonable about chunk sizes to avoid hanging
-		// We'll test smaller chunks but limit the amount of data processed
-		const maxTestDataSize = 64 * 1024; // Test with max 64KB of data for small chunks
-		const testData = compressedData.length > maxTestDataSize 
-			? compressedData.subarray(0, maxTestDataSize)
-			: compressedData;
+		const compressedData = extractFileData(zipData, smallerFile);
 		
-		// Test with small chunks but reasonable for large files
-		const smallChunkSizes = compressedData.length > 100000 
-			? [64, 128, 256, 512] // For large files, use larger "small" chunks
-			: [1, 2, 4, 8, 16];    // For small files, use very small chunks
+		console.log(`   File size: ${compressedData.length} bytes compressed -> ${smallerFile.uncompressedSize} bytes uncompressed`);
+		
+		// Test with small chunks - deflate64 needs complete stream but we can test input chunking
+		const smallChunkSizes = [64, 128, 256, 512, 1024];
 		
 		for (const chunkSize of smallChunkSizes) {
-			console.log(`   Testing buffer management with ${chunkSize}-byte chunks (using ${testData.length} bytes of data)...`);
+			console.log(`   Testing buffer management with ${chunkSize}-byte input chunks...`);
 			
 			const stream = new DecompressionStream("deflate64-raw");
 			const writer = stream.writable.getWriter();
@@ -219,17 +214,17 @@ async function runDeflate64LargeStreamingTests() {
 						if (value) chunks.push(value);
 					}
 				} catch (_error) {
-					// May get errors with partial data
+					// Handle any errors
 				}
 				return chunks;
 			})();
 			
-			// Write data in small chunks
+			// Write the complete data in small chunks to test input buffering
 			let offset = 0;
 			let chunksWritten = 0;
-			while (offset < testData.length) {
-				const currentChunkSize = Math.min(chunkSize, testData.length - offset);
-				const chunk = testData.subarray(offset, offset + currentChunkSize);
+			while (offset < compressedData.length) {
+				const currentChunkSize = Math.min(chunkSize, compressedData.length - offset);
+				const chunk = compressedData.subarray(offset, offset + currentChunkSize);
 				await writer.write(chunk);
 				offset += currentChunkSize;
 				chunksWritten++;
@@ -239,10 +234,14 @@ async function runDeflate64LargeStreamingTests() {
 			const result = await readPromise;
 			const totalOutput = result.reduce((sum, chunk) => sum + chunk.length, 0);
 			
-			console.log(`     ✓ ${chunkSize}-byte chunks: wrote ${chunksWritten} chunks, got ${totalOutput} output bytes`);
+			console.log(`     ✓ ${chunkSize}-byte chunks: wrote ${chunksWritten} input chunks, got ${totalOutput} output bytes`);
+			
+			// Verify we got the expected output
+			TestUtils.assert(totalOutput === smallerFile.uncompressedSize, 
+				`Expected ${smallerFile.uncompressedSize} bytes, got ${totalOutput}`);
 		}
 		
-		console.log(`   ✓ Buffer management verified across all chunk sizes`);
+		console.log(`   ✓ Buffer management verified - deflate64 properly accumulates input chunks until stream is complete`);
 	});
 
 	TestUtils.printSummary();
