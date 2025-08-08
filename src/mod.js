@@ -69,7 +69,7 @@ const TYPE_STRING = "string";
 // Other constants
 const FLUSH_MODE_AUTO = "auto";
 const HEX_PAD_LENGTH = 8;
-const HEX_PAD_CHAR = '0';
+const HEX_PAD_CHAR = "0";
 const DEFAULT_COMPRESSOR_LEVEL = 6;
 
 // Error messages
