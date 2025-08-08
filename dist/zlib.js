@@ -42,18 +42,9 @@ const METHOD_DECOMPRESS = "decompress";
 const TYPE_NUMBER = "number";
 const TYPE_STRING = "string";
 const FLUSH_MODE_AUTO = "auto";
-const ERROR_UNKNOWN = "unknown error";
 const HEX_PAD_LENGTH = 8;
 const HEX_PAD_CHAR = "0";
 const DEFAULT_COMPRESSOR_LEVEL = 6;
-const ERROR_DESCRIPTIONS = {
-  "-1": "system error",
-  "-2": "stream error",
-  "-3": "data error (corrupted/invalid data)",
-  "-4": "memory error",
-  "-5": "buffer error",
-  "-6": "version error"
-};
 const MSG_COMPRESSION_INIT_FAILED = "Compression initialization failed";
 const MSG_DECOMPRESSION_INIT_FAILED = "Decompression initialization failed";
 const MSG_COMPRESSION_FAILED = "Compression failed";
@@ -345,14 +336,31 @@ class ZlibDecompressor {
     if (zlibDecompressor.deflate64Complete) {
       return new Uint8Array(0);
     }
-    copyToWasmMemory(zlibModule, data, zlibDecompressor.inputPtr);
+    if (!zlibDecompressor.deflate64InputBuffer) {
+      zlibDecompressor.deflate64InputBuffer = [];
+      zlibDecompressor.deflate64InputBufferSize = 0;
+    }
+    if (data.length > 0) {
+      zlibDecompressor.deflate64InputBuffer.push(data);
+      zlibDecompressor.deflate64InputBufferSize += data.length;
+    }
+    if (!finish) {
+      return new Uint8Array(0);
+    }
+    const combinedInput = new Uint8Array(zlibDecompressor.deflate64InputBufferSize);
+    let offset = 0;
+    for (const chunk of zlibDecompressor.deflate64InputBuffer) {
+      combinedInput.set(chunk, offset);
+      offset += chunk.length;
+    }
+    copyToWasmMemory(zlibModule, combinedInput, zlibDecompressor.inputPtr);
     const results = [];
     const inFunc = zlibModule.addFunction((_, bufPtr) => {
-      if (data.length === 0) {
+      if (combinedInput.length === 0) {
         return 0;
       }
       zlibModule.HEAPU32[bufPtr >>> 2] = zlibDecompressor.inputPtr;
-      return data.length;
+      return combinedInput.length;
     }, SIGNATURE_III);
     const outFunc = zlibModule.addFunction((_, buf, len) => {
       if (len > 0) {
@@ -375,11 +383,12 @@ class ZlibDecompressor {
     zlibModule.removeFunction(outFunc);
     if (result === 1) {
       zlibDecompressor.deflate64Complete = true;
+      zlibDecompressor.deflate64InputBuffer = [];
+      zlibDecompressor.deflate64InputBufferSize = 0;
     }
     if (result < 0) {
       const msg = MSG_DEFLATE64_DECOMPRESSION_FAILED;
-      const errorDesc = ERROR_DESCRIPTIONS[result.toString()] || ERROR_UNKNOWN;
-      throw new Error(msg + ": " + result + " (" + errorDesc + ")");
+      throw new Error(msg + ": " + result);
     }
     if (finish && result !== 1 && !zlibDecompressor.deflate64Complete) {
       const msg = MSG_DEFLATE64_DECOMPRESSION_INCOMPLETE;
@@ -387,10 +396,10 @@ class ZlibDecompressor {
     }
     const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
     const output = bufferPool.get(totalLength);
-    let offset = 0;
+    let outputOffset = 0;
     for (const chunk of results) {
-      output.set(chunk, offset);
-      offset += chunk.length;
+      output.set(chunk, outputOffset);
+      outputOffset += chunk.length;
     }
     return output.subarray(0, totalLength);
   }
@@ -411,14 +420,6 @@ class ZlibDecompressor {
         if (zlibDecompressor.windowPtr) {
           zlibModule[FUNC_FREE](zlibDecompressor.windowPtr);
           zlibDecompressor.windowPtr = null;
-        }
-        if (zlibDecompressor.inflateBack9InFunc) {
-          zlibModule.removeFunction(zlibDecompressor.inflateBack9InFunc);
-          zlibDecompressor.inflateBack9InFunc = null;
-        }
-        if (zlibDecompressor.inflateBack9OutFunc) {
-          zlibModule.removeFunction(zlibDecompressor.inflateBack9OutFunc);
-          zlibDecompressor.inflateBack9OutFunc = null;
         }
       } else {
         zlibModule[FUNC_INFLATE_END](zlibDecompressor.streamPtr);
