@@ -1,3 +1,5 @@
+/* global TransformStream */
+
 // deno-lint-ignore-file no-this-alias
 /**
  * CompressionStream & DecompressionStream Polyfill
