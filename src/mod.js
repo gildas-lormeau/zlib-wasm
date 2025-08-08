@@ -383,32 +383,58 @@ class ZlibDecompressor {
 		if (zlibDecompressor.deflate64Complete) {
 			return new Uint8Array(0);
 		}
-		if (!zlibDecompressor.deflate64InputBuffer) {
-			zlibDecompressor.deflate64InputBuffer = [];
-			zlibDecompressor.deflate64InputBufferSize = 0;
+		
+		// Initialize streaming state if not already done
+		if (zlibDecompressor.deflate64InputBuffer) {
+			// Append new data to existing buffer
+			if (data.length > 0) {
+				const newBuffer = new Uint8Array(zlibDecompressor.deflate64InputBuffer.length + data.length);
+				newBuffer.set(zlibDecompressor.deflate64InputBuffer);
+				newBuffer.set(data, zlibDecompressor.deflate64InputBuffer.length);
+				zlibDecompressor.deflate64InputBuffer = newBuffer;
+			}
+		} else {
+			// First call - set up for streaming
+			zlibDecompressor.deflate64InputBuffer = data.length > 0 ? new Uint8Array(data) : new Uint8Array(0);
+			zlibDecompressor.deflate64StreamStarted = false;
 		}
-		if (data.length > 0) {
-			zlibDecompressor.deflate64InputBuffer.push(data);
-			zlibDecompressor.deflate64InputBufferSize += data.length;
+		
+		// Only start the single inflateBack9 call when we have enough data or are finishing
+		// Once started, we must let it complete
+		if (!zlibDecompressor.deflate64StreamStarted) {
+			const shouldStart = finish || zlibDecompressor.deflate64InputBuffer.length >= 1024;
+			if (!shouldStart) {
+				return new Uint8Array(0);
+			}
+			zlibDecompressor.deflate64StreamStarted = true;
 		}
-		if (!finish) {
+		
+		// For subsequent calls after streaming has started, just append data and wait for finish
+		if (zlibDecompressor.deflate64StreamStarted && !finish) {
 			return new Uint8Array(0);
 		}
-		const combinedInput = new Uint8Array(zlibDecompressor.deflate64InputBufferSize);
-		let offset = 0;
-		for (const chunk of zlibDecompressor.deflate64InputBuffer) {
-			combinedInput.set(chunk, offset);
-			offset += chunk.length;
-		}
-		copyToWasmMemory(zlibModule, combinedInput, zlibDecompressor.inputPtr);
+		
+		// Now we have all the data we're going to get, process it all at once
+		const inputData = zlibDecompressor.deflate64InputBuffer;
 		const results = [];
+		
+		// Ensure we have enough space in the input buffer
+		if (inputData.length > zlibDecompressor.inputSize) {
+			zlibModule[FUNC_FREE](zlibDecompressor.inputPtr);
+			zlibDecompressor.inputSize = Math.max(inputData.length, zlibDecompressor.inputSize * 2);
+			zlibDecompressor.inputPtr = zlibModule[FUNC_MALLOC](zlibDecompressor.inputSize);
+		}
+		
+		copyToWasmMemory(zlibModule, inputData, zlibDecompressor.inputPtr);
+		
 		const inFunc = zlibModule.addFunction((_, bufPtr) => {
-			if (combinedInput.length === 0) {
+			if (inputData.length === 0) {
 				return 0;
 			}
 			zlibModule.HEAPU32[bufPtr >>> 2] = zlibDecompressor.inputPtr;
-			return combinedInput.length;
+			return inputData.length;
 		}, SIGNATURE_III);
+		
 		const outFunc = zlibModule.addFunction((_, buf, len) => {
 			if (len > 0) {
 				if (zlibDecompressor.computeCRC32) {
@@ -419,6 +445,7 @@ class ZlibDecompressor {
 			}
 			return 0;
 		}, SIGNATURE_IIII);
+		
 		const result = zlibModule.ccall(FUNC_INFLATE_BACK9, TYPE_NUMBER, [TYPE_NUMBER, TYPE_NUMBER, TYPE_NUMBER, TYPE_NUMBER, TYPE_NUMBER], [
 			zlibDecompressor.streamPtr,
 			inFunc,
@@ -426,21 +453,21 @@ class ZlibDecompressor {
 			outFunc,
 			0,
 		]);
+		
 		zlibModule.removeFunction(inFunc);
 		zlibModule.removeFunction(outFunc);
+		
 		if (result === 1) {
 			zlibDecompressor.deflate64Complete = true;
-			zlibDecompressor.deflate64InputBuffer = [];
-			zlibDecompressor.deflate64InputBufferSize = 0;
-		}
-		if (result < 0) {
+			zlibDecompressor.deflate64InputBuffer = new Uint8Array(0);
+		} else if (result < 0) {
 			const msg = MSG_DEFLATE64_DECOMPRESSION_FAILED;
 			throw new Error(msg + ": " + result);
-		}
-		if (finish && result !== 1 && !zlibDecompressor.deflate64Complete) {
+		} else if (finish && result !== 1) {
 			const msg = MSG_DEFLATE64_DECOMPRESSION_INCOMPLETE;
 			throw new Error(msg + ": " + result);
 		}
+		
 		const totalLength = results.reduce((sum, chunk) => sum + chunk.length, 0);
 		const output = bufferPool.get(totalLength);
 		let outputOffset = 0;
@@ -470,6 +497,9 @@ class ZlibDecompressor {
 					zlibModule[FUNC_FREE](zlibDecompressor.windowPtr);
 					zlibDecompressor.windowPtr = null;
 				}
+				// Clean up deflate64 streaming state
+				zlibDecompressor.deflate64InputBuffer = null;
+				zlibDecompressor.deflate64StreamStarted = false;
 			} else {
 				zlibModule[FUNC_INFLATE_END](zlibDecompressor.streamPtr);
 			}

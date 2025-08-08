@@ -26,7 +26,7 @@ CFLAGS += -DZLIB_CONST           # Use const for some parameters (slight size re
 WASM_FLAGS=-s WASM=1 \
            -s EXPORTED_RUNTIME_METHODS='["ccall","addFunction","removeFunction","HEAP8","HEAP32","HEAPU8","HEAPU32"]' \
            -s EXPORTED_FUNCTIONS='["_malloc","_free"]' \
-           -s ALLOW_MEMORY_GROWTH=0 \
+           -s ALLOW_MEMORY_GROWTH=1 \
            -s ALLOW_TABLE_GROWTH=1 \
            -s RESERVED_FUNCTION_POINTERS=8 \
            -s MODULARIZE=1 \

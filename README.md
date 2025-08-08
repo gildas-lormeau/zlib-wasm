@@ -61,16 +61,6 @@ const deflate64RawDecompressor = new DecompressionStream('deflate64-raw');
 const rawResult = deflate64RawData.pipeThrough(deflate64RawDecompressor);
 ```
 
-**Important Note on Deflate64 Streaming:**
-
-Due to the underlying WebAssembly implementation using `inflateBack9`, Deflate64 decompression requires buffering the complete input stream before processing. This means:
-
-- ✅ **Works**: All chunk sizes will decompress successfully
-- ⚠️ **Limitation**: Input data is buffered internally until the stream ends
-- 💡 **Impact**: Higher memory usage for large Deflate64 files compared to other formats
-
-This buffering approach maintains API compatibility while handling the technical constraints of the Deflate64 implementation. For optimal memory usage with large files, consider using standard deflate format when possible.
-
 ### CRC32 Support
 
 The library provides CRC32 computation and verification for `deflate-raw` and `deflate64-raw` formats:
@@ -138,10 +128,8 @@ console.log(`Computed CRC32: 0x${computedCRC32.toString(16).padStart(8, '0').toU
 | `deflate`       | ✅           | ✅             | RFC 1951 (with zlib headers) |
 | `deflate-raw`   | ✅           | ✅             | Raw deflate (no headers)     |
 | `gzip`          | ✅           | ✅             | RFC 1952                     |
-| `deflate64`     | ❌           | ✅*            | ZIP deflate64 method         |
-| `deflate64-raw` | ❌           | ✅*            | Raw deflate64 (no headers)   |
-
-\* *Deflate64 formats internally buffer complete input stream before processing due to WebAssembly implementation constraints. This ensures compatibility with all chunk sizes but may use more memory for large files.*
+| `deflate64`     | ❌           | ✅             | ZIP deflate64 method         |
+| `deflate64-raw` | ❌           | ✅             | Raw deflate64 (no headers)   |
 
 ## API
 
