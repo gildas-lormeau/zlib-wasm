@@ -68,20 +68,9 @@ const TYPE_STRING = "string";
 
 // Other constants
 const FLUSH_MODE_AUTO = "auto";
-const ERROR_UNKNOWN = "unknown error";
 const HEX_PAD_LENGTH = 8;
 const HEX_PAD_CHAR = '0';
 const DEFAULT_COMPRESSOR_LEVEL = 6;
-
-// Error descriptions
-const ERROR_DESCRIPTIONS = {
-	'-1': 'system error',
-	'-2': 'stream error',
-	'-3': 'data error (corrupted/invalid data)',
-	'-4': 'memory error',
-	'-5': 'buffer error',
-	'-6': 'version error'
-};
 
 // Error messages
 const MSG_COMPRESSION_INIT_FAILED = "Compression initialization failed";
